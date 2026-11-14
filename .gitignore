@@ -1,0 +1,17 @@
+# données calculées et téléchargements (volumineux, régénérables)
+cache/
+data/
+logs/
+*.sqlite
+*.sqlite-*
+*.osm.pbf
+# configuration locale et secrets
+deploy.env
+CLAUDE.local.md
+.claude/settings.local.json
+.env
+# Python, système
+__pycache__/
+*.pyc
+.venv/
+.DS_Store

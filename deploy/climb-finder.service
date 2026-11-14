@@ -1,0 +1,21 @@
+[Unit]
+Description=Climb Finder (site des côtes à vélo, lecture seule, écoute locale derrière Caddy)
+After=network.target
+
+[Service]
+User=climbfinder
+Group=climbfinder
+WorkingDirectory=/opt/climb-finder
+ExecStart=/usr/bin/python3 server.py --readonly --strict-port --host 127.0.0.1 --port 8765 --db /var/lib/climb-finder/cotes.sqlite
+Restart=always
+RestartSec=5
+MemoryHigh=96M
+MemoryMax=160M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/climb-finder
+
+[Install]
+WantedBy=multi-user.target

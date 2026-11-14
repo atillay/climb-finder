@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Côtes autour de moi</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #6f6c66; --line: #e4e1db;
+    --accent: #d9480f; --accent-ink: #fff; --sel: #fff1e8;
+    --g0: #8bbf4a; --g1: #f2c12e; --g2: #f08c1a; --g3: #e03b2f; --g4: #a3161b; --g5: #4b1663;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  /* la page tient dans l'écran : en-tête + carte en haut (la moitié), résultats en bas avec leur propre défilement */
+  body { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+  body > header, #mapWrap, #status { flex: none; }
+  #results { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+    position: relative; z-index: 1200; }
+  h1 { font-size: 17px; margin: 0 6px 0 0; letter-spacing: -0.01em; }
+  h1 span { color: var(--accent); }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    padding: 7px 12px; border-radius: 8px; cursor: pointer; }
+  button:hover { border-color: #c9c4bb; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.primary:disabled { opacity: .55; cursor: progress; }
+  body.readonly #scan { display: none; }   /* site en ligne : consultation seule */
+  .ctrl { display: flex; align-items: center; gap: 8px; }
+  .search { position: relative; }
+  #place { width: 280px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit;
+    background: var(--panel); }
+  #place:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  #suggest { position: absolute; top: calc(100% + 4px); left: 0; width: max(100%, 340px); margin: 0; padding: 4px;
+    list-style: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.16); }
+  #suggest li { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+  #suggest li small { display: block; color: var(--muted); font-size: 12px; }
+  #suggest li.on, #suggest li:hover { background: var(--sel); }
+  #more { display: block; margin: 14px auto 0; }
+  .ctrl input[type=range] { width: 170px; accent-color: var(--accent); }
+  .radius-val { font-variant-numeric: tabular-nums; min-width: 48px; font-weight: 600; }
+  .hint { color: var(--muted); font-size: 12.5px; }
+  #progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; }
+  #progress div { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  #mapWrap { position: relative; }
+  .tiles-light { filter: grayscale(1) brightness(1.06) contrast(.92); }
+  #map { height: calc(50vh - var(--hdr, 57px)); height: calc(50dvh - var(--hdr, 57px)); min-height: 160px;
+    border-bottom: 1px solid var(--line); }
+  #status { padding: 8px 16px; color: var(--muted); font-size: 13px; min-height: 34px;
+    display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+  #status .err { color: #b3261e; }
+  #status b { color: var(--ink); }
+  #job { color: var(--accent); }
+  .cov { display: inline-flex; align-items: center; gap: 6px; }
+  .cov .bar { width: 70px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .cov .bar i { display: block; height: 100%; background: #6aa84f; }
+
+  /* fiche de la côte sélectionnée : en surimpression à droite de la carte */
+  #detail { display: none; position: absolute; top: 10px; right: 10px; bottom: 10px; z-index: 1001;
+    width: 360px; max-width: calc(100% - 20px); overflow: auto; padding: 10px 14px;
+    background: rgba(255,255,255,.97); border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.18); }
+  #detail.show { display: block; }
+  #detail h2 { font-size: 16px; margin: 0 0 6px; display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
+  #close { border: none; background: transparent; font-size: 18px; line-height: 1; padding: 0 4px; color: var(--muted); }
+  #close:hover { color: var(--ink); }
+  .stats { display: grid; grid-template-columns: repeat(3, auto); gap: 4px 14px; margin-bottom: 8px; }
+  .stats div small { display: block; color: var(--muted); font-size: 11px; line-height: 1.2; }
+  #detail .stats { margin-bottom: 0; }
+  #detail h2 { font-size: 15px; margin-bottom: 4px; }
+  .stats div b { font-variant-numeric: tabular-nums; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .actions a, .actions button { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px;
+    font-weight: 600; padding: 5px 10px; text-decoration: none; color: #fff; border: none; border-radius: 7px;
+    cursor: pointer; line-height: 1.2; }
+  .actions svg { width: 14px; height: 14px; flex: none; }
+  .actions a:hover, .actions button:hover { filter: brightness(1.1); }
+  #gpx { background: #1d1d1b; }
+  #share { background: #6741d9; }
+  #sv { background: #1a73e8; }
+  #osm { background: #5a9a48; }
+  #strava { background: #fc4c02; }
+  #profile { width: 100%; height: 100px; display: block; margin: 6px 0; }
+
+  #filters { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 16px; }
+  #filters label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+  #filters input[type=number] { width: 72px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+  #filters input[type=search] { width: 180px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+  #count { margin-left: auto; color: var(--muted); font-size: 13px; }
+
+  .table-wrap { padding: 0 0 40px; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-top: 1px solid var(--line);
+    font-variant-numeric: tabular-nums; }
+  th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { padding-left: 16px; } th:last-child, td:last-child { padding-right: 16px; }
+  th:nth-child(2), td:nth-child(2), th:last-child, td:last-child { text-align: left; }
+  td:nth-child(2) { white-space: normal; min-width: 180px; }
+  th { white-space: normal; }   /* en-têtes sur deux lignes si besoin : le tableau tient dans la largeur */
+  th { position: sticky; top: 0; background: #faf9f7; font-size: 12px; text-transform: uppercase;
+    letter-spacing: .03em; color: var(--muted); cursor: pointer; user-select: none; z-index: 2; }
+  th:hover { color: var(--ink); }
+  th.sorted { color: var(--accent); }
+  th .arrow { display: inline-block; width: 10px; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: #faf7f3; }
+  tbody tr.selected { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); }
+  .score { display: inline-block; min-width: 46px; padding: 2px 7px; border-radius: 6px; color: #fff; font-weight: 600; text-align: center; }
+  .grade { display: inline-flex; align-items: center; gap: 6px; }
+  .grade i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .tag { font-size: 12px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
+  .tag.ok { color: #2e7d32; border-color: #b9dcbb; }
+  .tag.cob { color: #6d4c41; border-color: #d7c3b8; }
+  tbody tr.variant td { background: #fbfaf8; font-size: 13px; border-bottom-color: #efece7; }
+  tbody tr.variant:hover td { background: #f6f2ec; }
+  tbody tr.variant.selected td { background: var(--sel); }
+  tbody tr.variant td:nth-child(2) { padding-left: 26px; }
+  .vtoggle { font-size: 11.5px; padding: 1px 8px; margin-left: 6px; border-radius: 10px; color: var(--accent);
+    white-space: nowrap; vertical-align: 1px; }
+  .vkind { font-size: 11px; color: var(--muted); margin-left: 4px; white-space: nowrap; }
+  .sub { display: block; font-size: 12px; color: var(--muted); }
+  .sig { font-size: 11.5px; color: var(--muted); margin-left: 3px; }
+  #dStreets { font-size: 12.5px; color: var(--muted); margin: -2px 0 6px; }
+  .empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+  .legend { background: rgba(255,255,255,.92); padding: 6px 8px; border-radius: 8px; font-size: 11.5px; line-height: 1.5;
+    box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+  .legend-title { cursor: pointer; display: block; }
+  .legend-title::after { content: ' ▾'; color: var(--muted); font-weight: normal; }
+  .legend.collapsed .legend-body { display: none; }
+  .legend.collapsed .legend-title::after { content: ' ▸'; }
+  .legend i { display: inline-block; width: 14px; height: 4px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  @media (max-width: 720px) {
+    .table-wrap { overflow-x: auto; }
+    .ctrl input[type=range] { width: 120px; }
+    #place { width: 200px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Côtes <span>autour de moi</span></h1>
+  <div class="search">
+    <input id="place" type="search" placeholder="Adresse, rue, commune…" autocomplete="off" spellcheck="false"
+      aria-label="Centre de la recherche" aria-autocomplete="list" aria-controls="suggest">
+    <ul id="suggest" role="listbox" hidden></ul>
+  </div>
+  <button id="locate" title="Utiliser ma position">📍 Ma position</button>
+  <div class="ctrl">
+    <label for="radius">Rayon</label>
+    <input id="radius" type="range" min="1" max="30" step="1" value="15">
+    <span class="radius-val" id="radiusVal">15 km</span>
+  </div>
+  <label class="ctrl"><input id="cobbles" type="checkbox"> Inclure les pavés</label>
+  <label class="ctrl" title="Masque les côtes situées surtout sur des rues résidentielles ou des voies de desserte"><input id="skipMinor" type="checkbox"> Masquer les petites rues</label>
+  <button id="scan" class="primary" title="Calcule en tâche de fond les cases de la zone qui ne sont pas encore en base">Calculer la zone</button>
+  <div id="progress"><div></div></div>
+</header>
+<div id="mapWrap">
+<div id="map"></div>
+<section id="detail">
+  <div>
+    <h2><span id="dName"></span><button id="close" title="Désélectionner (Échap)">✕</button></h2>
+    <div id="dStreets"></div>
+    <div class="stats" id="dStats"></div>
+    <canvas id="profile"></canvas>
+    <div class="actions">
+      <button id="share" title="Lien vers cette côte"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg><span>Partager</span></button>
+      <button id="gpx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Exporter GPX</button>
+      <a id="sv" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Street View au pied</a>
+      <a id="osm" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>Voir sur OSM</a>
+      <a id="strava" href="#" title="Ouvre la carte des segments Strava sur cette côte (compte Strava connecté)"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169"/></svg>Segments Strava</a>
+    </div>
+  </div>
+</section>
+</div>
+<div id="status"><span id="info">Chargement…</span><span id="cov" class="cov"></span><span id="job"></span></div>
+
+<main id="results">
+
+<div id="filters">
+  <label>Longueur <input id="fLenMin" type="number" min="0" step="50" placeholder="min"> –
+    <input id="fLenMax" type="number" min="0" step="50" placeholder="max"> m</label>
+  <label>Pente moy. ≥ <input id="fAvg" type="number" min="0" step="0.5" placeholder="%"> %</label>
+  <label>Max 300 m ≥ <input id="fMax300" type="number" min="0" step="0.5" placeholder="%"> %</label>
+  <label>D+ ≥ <input id="fGain" type="number" min="0" step="5" placeholder="m"> m</label>
+  <label title="Carrefours traversés entre le pied et le sommet (chacun est un arrêt possible)">Carrefours ≤ <input id="fJunc" type="number" min="0" step="1" placeholder="n"></label>
+  <input id="fName" type="search" placeholder="Filtrer par nom…">
+  <span id="count"></span>
+</div>
+<div class="table-wrap">
+  <table>
+    <thead><tr id="head"></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <button id="more" hidden></button>
+  <div class="empty" id="empty">Aucun résultat pour l'instant.</div>
+</div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const READONLY = document.body.classList.contains('readonly');   // site en ligne (server.py --readonly)
+const syncHeader = () => document.documentElement.style.setProperty('--hdr', document.querySelector('header').offsetHeight + 'px');
+syncHeader(); window.addEventListener('resize', () => { syncHeader(); if (typeof map !== 'undefined') map.invalidateSize(); });
+const GRADES = [[3, '--g0'], [6, '--g1'], [9, '--g2'], [12, '--g3'], [15, '--g4'], [Infinity, '--g5']];
+const css = getComputedStyle(document.documentElement);
+const color = (g) => css.getPropertyValue(GRADES.find(([lim]) => g < lim)[1]).trim();
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtLen = (m) => m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 1 : 2).replace('.', ',') + ' km' : Math.round(m) + ' m';
+const fmtPct = (v) => v == null ? '—' : v.toFixed(1).replace('.', ',') + ' %';
+const fmtNum = (v, d = 0) => v == null ? '—' : v.toFixed(d).replace('.', ',');
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+// ---------- état (mémorisé dans le navigateur) ----------
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+const state = {
+  center: store.get('center', [48.8566, 2.3522]),
+  radius: Math.min(30, store.get('radius', 15)),
+  sort: store.get('sort', { key: 'score', dir: -1 }),
+  climbs: [], total: 0, coverage: null,
+  selected: null, detail: null,
+  byId: new Map(), visible: [], open: new Set(),   // côtes et variantes affichées, familles dépliées
+  dbTiles: null, jobVersion: null,
+};
+$('cobbles').checked = store.get('withCobbles', true);
+$('skipMinor').checked = store.get('skipMinor', false);
+const FILTERS = ['fLenMin', 'fLenMax', 'fAvg', 'fMax300', 'fGain', 'fJunc', 'fName'];
+const savedFilters = store.get('filters', {});
+FILTERS.forEach((id) => { if (savedFilters[id] != null) $(id).value = savedFilters[id]; });
+
+// ---------- carte ----------
+const map = L.map('map', { preferCanvas: true }).setView(state.center, 11);
+const layers = {
+  // plan OSM désaturé : les couleurs des côtes ressortent (le plan classique a beaucoup de routes jaunes)
+  'Plan clair': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { maxZoom: 19, className: 'tiles-light', attribution: '© contributeurs OpenStreetMap' }),
+  'Plan OSM': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { maxZoom: 19, attribution: '© contributeurs OpenStreetMap' }),
+  'Topo (OpenTopoMap)': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    { maxZoom: 17, attribution: '© OpenStreetMap, SRTM | © OpenTopoMap (CC-BY-SA)' }),
+  'Plan IGN': L.tileLayer('https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&FORMAT=image/png&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
+    { maxZoom: 19, attribution: '© IGN' }),
+};
+(layers[store.get('baseLayer', 'Plan clair')] || layers['Plan clair']).addTo(map);
+map.on('baselayerchange', (e) => store.set('baseLayer', e.name));
+L.control.layers(layers, null, { position: 'topright' }).addTo(map);
+const legend = L.control({ position: 'bottomleft' });
+legend.onAdd = () => {
+  const d = L.DomUtil.create('div', 'legend');
+  const labels = ['< 3 %', '3–6 %', '6–9 %', '9–12 %', '12–15 %', '≥ 15 %'];
+  d.innerHTML = '<b class="legend-title">Pente moyenne</b><div class="legend-body">' + GRADES.map(([, v], i) =>
+    `<i style="background:${css.getPropertyValue(v)}"></i>${labels[i]}`).join('<br>') +
+    '<br><i style="background:#6aa84f;opacity:.35;height:10px"></i>zone calculée'
+    + '<br><i style="height:10px;background:repeating-linear-gradient(45deg,rgba(224,59,47,.55) 0 2px,rgba(224,59,47,.06) 2px 6px)"></i>zone non couverte</div>';
+  // petit écran : repliée par défaut (elle cachait le tracé), un toucher sur le titre la déplie
+  if (window.innerWidth < 640) d.classList.add('collapsed');
+  d.querySelector('.legend-title').addEventListener('click', (e) => { L.DomEvent.stopPropagation(e); d.classList.toggle('collapsed'); });
+  L.DomEvent.disableClickPropagation(d);
+  return d;
+};
+legend.addTo(map);
+
+const coverageLayer = L.layerGroup().addTo(map);
+const circle = L.circle(state.center, { radius: state.radius * 1000, color: '#d9480f', weight: 1.5,
+  fillOpacity: 0.03, dashArray: '6 6', interactive: false }).addTo(map);
+map.createPane('casing').style.zIndex = 399;   // sous les tracés (overlayPane = 400)
+const casingRenderer = L.canvas({ pane: 'casing' });
+const casingLayer = L.layerGroup().addTo(map);
+const climbLayer = L.layerGroup().addTo(map);
+let highlight = null, startMarker = null;
+const lines = new Map(), casings = new Map();
+// tracés : un liseré sombre fait ressortir chaque couleur, même le jaune sur un fond jaune
+const STYLE = { line: { weight: 4, opacity: 1 }, casing: { weight: 7, opacity: 0.6 } };
+const DIM = { line: { weight: 2, opacity: 0.3 }, casing: { weight: 4, opacity: 0 } };
+function styleLines(st) {
+  for (const pl of lines.values()) pl.setStyle(st.line);
+  for (const cs of casings.values()) cs.setStyle(st.casing);
+}
+// la carte bouge toute seule (cadrage d'une côte, du cercle) : pas de nouvelle recherche
+let progMoveAt = 0;
+function progFit(bounds, opts) { progMoveAt = Date.now(); map.fitBounds(bounds, opts); }
+progFit(circle.getBounds(), { padding: [20, 20] });
+
+function setCenter(latlng, pan = false) {
+  state.center = [latlng.lat ?? latlng[0], latlng.lng ?? latlng[1]];
+  circle.setLatLng(state.center);
+  store.set('center', state.center);
+  if (pan) progFit(circle.getBounds(), { padding: [20, 20] });
+  query();
+}
+// le centre se choisit par l'adresse ou « Ma position » ; un clic sur la carte ferme seulement la fiche
+map.on('click', () => { if (state.selected) deselect(); });
+
+// ---------- recherche d'adresse : API Adresse de l'État (Géoplateforme), faite pour l'autocomplétion
+// (celle d'OpenStreetMap, Nominatim, l'interdit) ; résultats rapprochés du centre actuel ----------
+let suggestItems = [], suggestIdx = -1, suggestAbort = null;
+$('place').value = store.get('placeLabel', '');
+function hideSuggest() { $('suggest').hidden = true; suggestIdx = -1; $('place').setAttribute('aria-expanded', 'false'); }
+function showSuggest() {
+  const ul = $('suggest');
+  ul.innerHTML = suggestItems.map((s, i) => `<li role="option" data-i="${i}" class="${i === suggestIdx ? 'on' : ''}">`
+    + `${esc(s.label)}${s.ctx ? `<small>${esc(s.ctx)}</small>` : ''}</li>`).join('');
+  ul.hidden = !suggestItems.length;
+  $('place').setAttribute('aria-expanded', String(!ul.hidden));
+}
+async function suggest() {
+  const q = $('place').value.trim();
+  if (q.length < 3) { suggestItems = []; return hideSuggest(); }
+  if (suggestAbort) suggestAbort.abort();
+  suggestAbort = new AbortController();
+  try {
+    const p = new URLSearchParams({ q, autocomplete: 1, limit: 6, lat: state.center[0].toFixed(4), lon: state.center[1].toFixed(4) });
+    const r = await fetch('https://data.geopf.fr/geocodage/search?' + p, { signal: suggestAbort.signal });
+    suggestItems = ((await r.json()).features || []).map((f) => ({
+      label: f.properties.label, ctx: f.properties.context,
+      ll: [f.geometry.coordinates[1], f.geometry.coordinates[0]] }));
+    suggestIdx = suggestItems.length ? 0 : -1;
+    showSuggest();
+  } catch (e) { if (e.name !== 'AbortError') { suggestItems = []; hideSuggest(); } }
+}
+function pickSuggest(i) {
+  const s = suggestItems[i]; if (!s) return;
+  $('place').value = s.label; store.set('placeLabel', s.label);
+  hideSuggest(); $('place').blur();
+  if (state.selected) deselect();
+  setCenter(s.ll, true);
+}
+$('place').addEventListener('input', debounce(suggest, 200));
+$('place').addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (!suggestItems.length) return;
+    e.preventDefault();
+    suggestIdx = (suggestIdx + (e.key === 'ArrowDown' ? 1 : -1) + suggestItems.length) % suggestItems.length;
+    showSuggest();
+  } else if (e.key === 'Enter') {
+    e.preventDefault(); pickSuggest(Math.max(0, suggestIdx));
+  } else if (e.key === 'Escape') hideSuggest();
+});
+$('place').addEventListener('focus', () => { if (suggestItems.length) showSuggest(); });
+$('place').addEventListener('blur', () => setTimeout(hideSuggest, 150));
+$('suggest').addEventListener('mousedown', (e) => {   // mousedown : avant la perte du focus
+  const li = e.target.closest('li[data-i]'); if (li) { e.preventDefault(); pickSuggest(+li.dataset.i); }
+});
+
+$('radius').value = state.radius;
+const showRadius = () => { $('radiusVal').textContent = state.radius + ' km'; };
+showRadius();
+$('radius').addEventListener('input', (e) => {
+  state.radius = +e.target.value; showRadius(); circle.setRadius(state.radius * 1000); store.set('radius', state.radius);
+});
+$('radius').addEventListener('change', () => { progFit(circle.getBounds(), { padding: [20, 20] }); query(); });
+
+$('locate').addEventListener('click', () => {
+  if (!navigator.geolocation) return setInfo('La géolocalisation n\'est pas disponible dans ce navigateur.', true);
+  setInfo('Recherche de ta position…');
+  navigator.geolocation.getCurrentPosition(
+    (p) => { $('place').value = ''; store.set('placeLabel', ''); setCenter([p.coords.latitude, p.coords.longitude], true); },
+    (err) => setInfo('Position introuvable : ' + err.message, true),
+    { enableHighAccuracy: true, timeout: 15000 });
+});
+
+// ---------- recherche dans la base ----------
+function setInfo(html, error = false) { $('info').innerHTML = error ? `<span class="err">${esc(html)}</span>` : html; }
+function setProgress(f) { $('progress').firstElementChild.style.width = (f == null ? 0 : f * 100) + '%'; }
+
+// les résultats arrivent par pages (le serveur garde le classement en cache pour les suivantes) :
+// tableau et carte restent légers même là où il y a des milliers de côtes (Grasse)
+const PAGE = 300;
+let querySeq = 0, queryAbort = null;
+const respCache = new Map();   // 30 dernières réponses (clé = paramètres de la recherche)
+function queryParams(offset) {
+  const num = (id) => $(id).value === '' ? '' : $(id).value;
+  return new URLSearchParams({
+    // centre arrondi (~500 m) : un petit déplacement retombe sur une réponse déjà en cache
+    lat: (Math.round(state.center[0] / 0.005) * 0.005).toFixed(4),
+    lon: (Math.round(state.center[1] / 0.007) * 0.007).toFixed(4), radius_km: state.radius,
+    cobbles: $('cobbles').checked ? 1 : 0, minor: $('skipMinor').checked ? 0 : 1,
+    len_min: num('fLenMin'), len_max: num('fLenMax'), avg_min: num('fAvg'), max300_min: num('fMax300'),
+    gain_min: num('fGain'), junc_max: num('fJunc'), q: $('fName').value.trim(),
+    sort: state.sort.key, dir: state.sort.dir < 0 ? 'desc' : 'asc', limit: PAGE, offset,
+  });
+}
+async function query(append = false) {
+  const seq = ++querySeq;
+  if (queryAbort) queryAbort.abort();   // la requête précédente ne sert plus : on ne la télécharge pas
+  queryAbort = new AbortController();
+  const slow = setTimeout(() => { if (seq === querySeq) $('count').textContent = 'Chargement…'; }, 250);
+  try {
+    const key = queryParams(append ? state.climbs.length : 0).toString();
+    let res = respCache.get(key);
+    if (res) { respCache.delete(key); respCache.set(key, res); }   // réponse déjà vue : aucune requête
+    else {
+      const r = await fetch('api/climbs?' + key, { signal: queryAbort.signal });
+      res = await r.json();
+      if (!r.ok) throw new Error(res.error || r.statusText);
+      respCache.set(key, res);
+      while (respCache.size > 30) respCache.delete(respCache.keys().next().value);
+    }
+    if (seq !== querySeq) return;  // une requête plus récente est partie entre-temps
+    showResults(res, append);
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    setInfo('Erreur : ' + e.message, true);
+  } finally { clearTimeout(slow); }
+  if (!append) loadCoverage();
+}
+$('more').addEventListener('click', () => query(true));
+const queryDebounced = debounce(query, 300);
+
+function showResults(res, append = false) {
+  state.climbs = append ? state.climbs.concat(res.climbs) : res.climbs;
+  state.total = res.total; state.coverage = res.coverage;
+  if (!append) state.byId = new Map();
+  for (const c of res.climbs) { state.byId.set(c.id, c); for (const v of c.variants) state.byId.set(v.id, v); }
+  const ids = new Set(state.climbs.map((c) => c.id));
+  for (const [id, pl] of lines) if (!ids.has(id)) {
+    climbLayer.removeLayer(pl); lines.delete(id);
+    casingLayer.removeLayer(casings.get(id)); casings.delete(id);
+  }
+  for (const c of res.climbs) {
+    if (lines.has(c.id)) continue;
+    const st = state.selected ? DIM : STYLE;
+    const cs = L.polyline(c.geometry, { color: '#1d1d1b', interactive: false, renderer: casingRenderer, ...st.casing });
+    casings.set(c.id, cs); casingLayer.addLayer(cs);
+    const pl = L.polyline(c.geometry, { color: color(c.avg_grade), ...st.line });
+    pl.on('click', (e) => { L.DomEvent.stopPropagation(e); select(c.id, true); });
+    pl.bindTooltip(`${esc(c.name)} — ${fmtLen(c.length_m)} à ${fmtPct(c.avg_grade)}`, { sticky: true });
+    lines.set(c.id, pl); climbLayer.addLayer(pl);
+  }
+  const cov = res.coverage, pct = cov.total ? Math.round(100 * cov.done / cov.total) : 0;
+  const nv = res.total_climbs - res.total;
+  setInfo(`<b>${res.total}</b> côte${res.total > 1 ? 's' : ''} dans un rayon de ${state.radius} km`
+    + (nv > 0 ? ` (+ ${nv} variante${nv > 1 ? 's' : ''})` : '')
+    + (res.total > state.climbs.length ? ` (les ${state.climbs.length} premières affichées)` : ''));
+  $('cov').innerHTML = `zone calculée à <b>${pct} %</b><span class="bar"><i style="width:${pct}%"></i></span>`
+    + (pct < 100 && !READONLY ? ' → clique sur « Calculer la zone »' : '');
+  render();
+}
+
+// ---------- couverture : cases calculées en vert, zones non couvertes hachurées en rouge ----------
+// hachures : motif SVG (le reste de la carte est en canvas), dans un calque sous les tracés
+map.createPane('nodata').style.zIndex = 350;
+map.getPane('nodata').style.pointerEvents = 'none';
+const hatchRenderer = L.svg({ pane: 'nodata' });
+map.addLayer(hatchRenderer);
+hatchRenderer._container.insertAdjacentHTML('afterbegin',
+  '<defs><pattern id="cf-hatch" patternUnits="userSpaceOnUse" width="9" height="9" patternTransform="rotate(45)">'
+  + '<rect width="9" height="9" fill="#e03b2f" fill-opacity="0.05"/>'
+  + '<line x1="0" y1="0" x2="0" y2="9" stroke="#e03b2f" stroke-width="2.2" stroke-opacity="0.5"/></pattern></defs>');
+const noDataLayer = L.layerGroup().addTo(map);
+const MAX_HATCH_ROWS = 70;   // au-delà (vue très éloignée), on ne hachure pas : trop de formes
+let coverageKey = '';
+async function loadCoverage() {
+  const b = map.getBounds().extend(circle.getBounds());
+  const s = b.getSouth(), n = b.getNorth(), w = b.getWest(), e = b.getEast();
+  try {
+    const res = await (await fetch(`api/coverage?s=${s}&w=${w}&n=${n}&e=${e}`)).json();
+    const i0 = Math.floor(s / res.dlat), i1 = Math.floor(n / res.dlat);
+    const j0 = Math.floor(w / res.dlon), j1 = Math.floor(e / res.dlon);
+    const key = JSON.stringify([res.tiles, i0, i1, j0, j1]);
+    if (key === coverageKey) return;
+    coverageKey = key; coverageLayer.clearLayers(); noDataLayer.clearLayers();
+    const done = new Set(res.tiles.map(([i, j]) => i + ',' + j));
+    for (const [i, j] of res.tiles) {
+      coverageLayer.addLayer(L.rectangle([[i * res.dlat, j * res.dlon], [(i + 1) * res.dlat, (j + 1) * res.dlon]],
+        { stroke: false, fillColor: '#6aa84f', fillOpacity: 0.08, interactive: false }));
+    }
+    if (i1 - i0 > MAX_HATCH_ROWS) return;
+    // cases non calculées, fusionnées par bandes horizontales (une forme par suite de cases)
+    for (let i = i0; i <= i1; i++) {
+      let start = null;
+      for (let j = j0; j <= j1 + 1; j++) {
+        const missing = j <= j1 && !done.has(i + ',' + j);
+        if (missing && start === null) start = j;
+        if (!missing && start !== null) {
+          noDataLayer.addLayer(L.rectangle([[i * res.dlat, start * res.dlon], [(i + 1) * res.dlat, j * res.dlon]],
+            { renderer: hatchRenderer, stroke: false, fillColor: 'url(#cf-hatch)', fillOpacity: 1, interactive: false }));
+          start = null;
+        }
+      }
+    }
+  } catch {}
+}
+map.on('moveend', debounce(loadCoverage, 250));
+// la recherche suit la carte quand l'utilisateur la déplace (glisser, zoom), dès que le centre a
+// bougé d'au moins 10 % du rayon ; les déplacements faits par le code ne comptent pas
+map.on('moveend', debounce(() => {
+  if (Date.now() - progMoveAt < 1500) return;
+  const c = map.getCenter();
+  if (map.distance(c, state.center) < state.radius * 100) return;
+  $('place').value = ''; store.set('placeLabel', '');
+  setCenter(c, false);
+}, 400));
+
+// ---------- calcul en tâche de fond ----------
+$('scan').addEventListener('click', async () => {
+  const r = await fetch('api/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lat: state.center[0], lon: state.center[1], radius_km: state.radius }) });
+  const res = await r.json();
+  $('job').textContent = res.tiles_todo ? `${res.tiles_todo} case(s) à calculer, c'est parti…` : 'Zone déjà entièrement calculée.';
+  pollStatus();
+});
+
+let pollTimer = null;
+async function pollStatus() {
+  clearTimeout(pollTimer);
+  try {
+    const st = await (await fetch('api/status')).json();
+    // nouvelle case enregistrée (par le site ou par precompute.py) -> on rafraîchit les résultats
+    if (state.dbTiles !== null && st.db.tiles !== state.dbTiles) { respCache.clear(); queryDebounced(); }
+    state.dbTiles = st.db.tiles;
+    if (st.running) {
+      $('job').textContent = '⏳ ' + st.message;
+      setProgress(st.total ? st.done / st.total : 0.02);
+    } else if (st.night) {
+      const n = st.night;
+      $('job').textContent = `🌙 Calcul de fond (${n.radius_km} km) : ${n.tiles_done ?? '?'}/${n.tiles_total} cases — ${n.message}`;
+      setProgress(n.tiles_total ? (n.tiles_done || 0) / n.tiles_total : 0);
+    } else {
+      if (st.message) $('job').textContent = st.message;
+      setProgress(0);
+    }
+    pollTimer = setTimeout(pollStatus, st.running || st.night ? 3000 : 10000);
+  } catch { pollTimer = setTimeout(pollStatus, 10000); }
+}
+
+// ---------- tableau ----------
+const COLS = [
+  { key: 'rank', label: '#', dir: 1 },
+  { key: 'name', label: 'Nom', dir: 1 },
+  { key: 'length_m', label: 'Longueur', dir: -1 },
+  { key: 'gain_m', label: 'D+', dir: -1 },
+  { key: 'avg_grade', label: 'Pente moy.', dir: -1 },
+  { key: 'max_grade_100', label: 'Max 100 m', dir: -1 },
+  { key: 'max_grade_300', label: 'Max 300 m', dir: -1 },
+  { key: 'score', label: 'Difficulté', dir: -1 },
+  { key: 'distance_km', label: 'Distance', dir: 1 },
+  { key: 'junctions', label: 'Carref.', dir: 1 },
+  { key: 'surface', label: 'Revêtement', dir: 1 },
+];
+function renderHead() {
+  $('head').innerHTML = COLS.map((c) => {
+    const on = state.sort.key === c.key;
+    return `<th data-key="${c.key}" class="${on ? 'sorted' : ''}">${c.label} <span class="arrow">${on ? (state.sort.dir < 0 ? '▼' : '▲') : ''}</span></th>`;
+  }).join('');
+}
+$('head').addEventListener('click', (e) => {
+  const th = e.target.closest('th'); if (!th) return;
+  const col = COLS.find((c) => c.key === th.dataset.key);
+  state.sort = state.sort.key === col.key ? { key: col.key, dir: -state.sort.dir } : { key: col.key, dir: col.dir };
+  store.set('sort', state.sort); renderHead(); query();
+});
+FILTERS.forEach((id) => $(id).addEventListener('input', () => {
+  store.set('filters', Object.fromEntries(FILTERS.map((f) => [f, $(f).value]))); queryDebounced();
+}));
+const STORE_KEY = { cobbles: 'withCobbles', skipMinor: 'skipMinor' };
+['cobbles', 'skipMinor'].forEach((id) => $(id).addEventListener('change', () => { store.set(STORE_KEY[id], $(id).checked); query(); }));
+
+const surfaceTag = (s) => s === 'confirmé' ? '<span class="tag ok">confirmé</span>'
+  : s === 'pavés' ? '<span class="tag cob">pavés</span>' : '<span class="tag">supposé</span>';
+const gradeCell = (g) => g == null ? '—' : `<span class="grade"><i style="background:${color(g)}"></i>${fmtPct(g)}</span>`;
+const scoreColor = (s) => color(Math.sqrt(s / 10) * 3);
+
+const KIND = { 'longue': 'départ plus bas', 'autre départ': 'autre départ', 'principale': 'route classique' };
+const juncCell = (c) => c.junctions == null ? '—'
+  : c.junctions + (c.signals ? `<span class="sig" title="feux et stops">🚦${c.signals}</span>` : '');
+function nameCell(c, sub) {
+  if (sub) return `↳ ${esc(c.streets)} <span class="vkind">${KIND[c.variant] || ''}</span>`;
+  const label = c.variant === 'principale' ? c.name : c.streets;
+  const n = c.variants.length, open = state.open.has(c.family);
+  const more = c.variant === 'principale' && c.streets && c.streets !== c.name && c.streets.includes('→')
+    ? `<span class="sub">${esc(c.streets)}</span>` : '';
+  return esc(label) + (n ? ` <button class="vtoggle" data-fam="${esc(c.family)}" title="Autres façons d'arriver au même sommet">${open ? '−' : '+'} ${n} variante${n > 1 ? 's' : ''}</button>` : '') + more;
+}
+const rowHtml = (c, sub) => `
+    <tr data-id="${c.id}" class="${sub ? 'variant' : ''}${c.id === state.selected ? ' selected' : ''}">
+      <td>${sub ? '' : c.rank}</td><td>${nameCell(c, sub)}</td><td>${fmtLen(c.length_m)}</td><td>${fmtNum(c.gain_m)} m</td>
+      <td>${gradeCell(c.avg_grade)}</td><td>${gradeCell(c.max_grade_100)}</td><td>${gradeCell(c.max_grade_300)}</td>
+      <td><span class="score" style="background:${scoreColor(c.score)}">${fmtNum(c.score)}</span></td>
+      <td>${fmtNum(c.distance_km, 1)} km</td><td>${juncCell(c)}</td><td>${surfaceTag(c.surface)}</td>
+    </tr>`;
+
+function render() {
+  renderHead();
+  state.visible = [];
+  const html = [];
+  for (const c of state.climbs) {
+    state.visible.push(c); html.push(rowHtml(c, false));
+    if (state.open.has(c.family)) for (const v of c.variants) { state.visible.push(v); html.push(rowHtml(v, true)); }
+  }
+  $('rows').innerHTML = html.join('');
+  const rest = state.total - state.climbs.length;
+  $('more').hidden = rest <= 0;
+  $('more').textContent = `Afficher ${Math.min(PAGE, rest)} côte${Math.min(PAGE, rest) > 1 ? 's' : ''} de plus (${rest} restantes)`;
+  const n = state.climbs.length;
+  $('count').textContent = n ? `${state.total} côte${state.total > 1 ? 's' : ''}` : '';
+  $('empty').style.display = n ? 'none' : 'block';
+  const filtered = FILTERS.some((id) => $(id).value !== '');
+  $('empty').textContent = filtered ? 'Aucune côte ne correspond aux filtres.'
+    : state.coverage && state.coverage.done < state.coverage.total
+      ? (READONLY ? 'Cette zone n\'est pas encore couverte par la base.'
+        : 'Cette zone n\'est pas (entièrement) calculée : clique sur « Calculer la zone ». Les côtes apparaîtront ici au fur et à mesure.')
+      : 'Aucune côte dans cette zone.';
+}
+const familyOf = (id) => state.climbs.find((c) => c.id === id || c.variants.some((v) => v.id === id));
+
+$('rows').addEventListener('click', (e) => {
+  const tog = e.target.closest('.vtoggle');
+  if (tog) {
+    const f = tog.dataset.fam;
+    if (state.open.has(f)) state.open.delete(f); else state.open.add(f);
+    render(); return;
+  }
+  const tr = e.target.closest('tr'); if (!tr) return;
+  if (tr.dataset.id !== state.selected) return select(tr.dataset.id, false);
+  // même côte : fiche fermée -> on la rouvre ; fiche ouverte -> on désélectionne
+  if (state.detail && !$('detail').classList.contains('show')) showDetail(state.detail); else deselect();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'Escape' && state.selected) { deselect(); return; }
+  if (!['ArrowDown', 'ArrowUp'].includes(e.key) || !state.visible.length) return;
+  e.preventDefault();
+  const i = state.visible.findIndex((c) => c.id === state.selected);
+  const next = state.visible[Math.max(0, Math.min(state.visible.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
+  select(next.id, true);
+});
+$('close').addEventListener('click', () => closeDetail());
+
+// ---------- sélection ----------
+const familyLayer = L.layerGroup().addTo(map);
+function clearHighlight() {
+  familyLayer.clearLayers();
+  if (highlight) { map.removeLayer(highlight); highlight = null; }
+  if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
+}
+// ✕ : on ferme seulement la fiche, la côte reste sélectionnée et la carte se recadre dessus en
+// pleine largeur (sur mobile, la fiche recouvrait toute la carte)
+function closeDetail() {
+  $('detail').classList.remove('show');
+  if (state.detail) fitClimb(state.detail);
+}
+// Échap, clic sur la carte : plus de sélection ; la carte ne bouge pas
+function deselect() {
+  if (!state.selected) return;
+  state.selected = null; state.detail = null;
+  setClimbUrl(null);
+  clearHighlight();
+  styleLines(STYLE);
+  document.querySelectorAll('#rows tr.selected').forEach((tr) => tr.classList.remove('selected'));
+  $('detail').classList.remove('show');
+}
+async function select(id, scrollRow) {
+  const light = state.byId.get(id);   // absente si la variante ne correspond pas aux filtres
+  state.selected = id;
+  const fam = familyOf(id);   // variante d'une famille repliée : on la déplie pour montrer la ligne
+  if (fam && fam.id !== id && !state.open.has(fam.family)) { state.open.add(fam.family); render(); }
+  document.querySelectorAll('#rows tr.selected').forEach((tr) => tr.classList.remove('selected'));
+  const tr = document.querySelector(`#rows tr[data-id="${id}"]`);
+  if (tr) { tr.classList.add('selected'); if (scrollRow) tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+  styleLines(DIM);
+  if (light && light.geometry) drawHighlight(light);
+  const c = await (await fetch('api/climbs/' + id)).json();
+  if (state.selected !== id) return;
+  if (light) { c.rank = light.rank; c.distance_km = light.distance_km; }
+  else c.distance_km = map.distance(state.center, c.start) / 1000;
+  state.detail = c;
+  setClimbUrl(id);
+  drawHighlight(c);
+  showDetail(c);
+}
+function drawHighlight(c) {
+  clearHighlight();
+  // les autres façons d'arriver au même sommet, en plus léger
+  for (const v of c.family_members || []) {
+    if (v.id === c.id) continue;
+    const pl = L.polyline(v.geometry, { color: color(v.avg_grade), weight: 4, opacity: 0.75, dashArray: '2 7', lineCap: 'round' });
+    pl.bindTooltip(`${esc(v.streets || v.name)} — ${fmtLen(v.length_m)} à ${fmtPct(v.avg_grade)}`, { sticky: true });
+    pl.on('click', (e) => { L.DomEvent.stopPropagation(e); select(v.id, true); });
+    familyLayer.addLayer(pl);
+  }
+  highlight = L.layerGroup([
+    L.polyline(c.geometry, { color: '#fff', weight: 11, opacity: 0.9, interactive: false }),
+    L.polyline(c.geometry, { color: color(c.avg_grade), weight: 7, opacity: 1, interactive: false }),
+  ]).addTo(map);
+  startMarker = L.circleMarker(c.start, { radius: 6, color: '#fff', weight: 2, fillColor: '#1d1d1b', fillOpacity: 1 })
+    .bindTooltip('Pied de la côte').addTo(map);
+  fitClimb(c, true);
+}
+// cadre la côte : fiche ouverte (360 px à droite) -> dans la partie gauche de la carte, sauf si la
+// carte est trop étroite (mobile, la fiche la recouvre de toute façon) ; fiche fermée -> pleine carte
+function fitClimb(c, withDetail = $('detail').classList.contains('show')) {
+  const mw = map.getSize().x, side = withDetail && mw >= 640 ? Math.min(380, mw - 20) : 30;
+  progFit(L.latLngBounds(c.geometry), { paddingTopLeft: [40, 30], paddingBottomRight: [side, 30], maxZoom: 16 });
+}
+
+function showDetail(c) {
+  $('detail').classList.add('show');
+  const isMain = !c.variant || c.variant === 'principale';
+  $('dName').textContent = isMain ? c.name : c.streets;
+  $('dStreets').textContent = isMain ? (c.streets && c.streets !== c.name ? c.streets : '') : (KIND[c.variant] || '');
+  const junc = c.junctions == null ? '—' : c.junctions + (c.main_junctions ? ` (${c.main_junctions} grand${c.main_junctions > 1 ? 's' : ''} axe${c.main_junctions > 1 ? 's' : ''})` : '');
+  const stats = [
+    ['Longueur', fmtLen(c.length_m)], ['D+', fmtNum(c.gain_m) + ' m'], ['Pente moy.', fmtPct(c.avg_grade)],
+    ['Max 100 m', fmtPct(c.max_grade_100)], ['Max 300 m', fmtPct(c.max_grade_300)], ['Difficulté', fmtNum(c.score)],
+    ['Altitude', `${Math.round(c.alt_start)} → ${Math.round(c.alt_end)} m`], ['Distance', fmtNum(c.distance_km, 1) + ' km'], ['Revêtement', c.surface],
+    ['Carrefours', junc], ['Feux / stops', c.signals == null ? 'non relevés' : String(c.signals)],
+  ];
+  $('dStats').innerHTML = stats.map(([k, v]) => `<div><small>${k}</small><b>${esc(v)}</b></div>`).join('');
+  const [la, lo] = c.start, [la2, lo2] = c.geometry[Math.min(2, c.geometry.length - 1)];
+  const heading = (Math.atan2((lo2 - lo) * Math.cos(la * Math.PI / 180), la2 - la) * 180 / Math.PI + 360) % 360;
+  $('sv').href = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${la},${lo}&heading=${heading.toFixed(0)}`;
+  $('osm').href = `https://www.openstreetmap.org/?mlat=${la}&mlon=${lo}#map=16/${la}/${lo}`;
+  drawProfile(c);
+}
+
+function drawProfile(c) {
+  const cv = $('profile'), dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H);
+  const p = c.profile; if (!p || p.length < 2) return;
+  const pad = { l: 40, r: 28, t: 12, b: 22 };
+  const dMax = p[p.length - 1][0];
+  const zs = p.map((q) => q[1]);
+  let zMin = Math.min(...zs), zMax = Math.max(...zs);
+  const span = Math.max(20, zMax - zMin); zMin -= span * 0.1; zMax = zMin + span * 1.25;
+  const X = (d) => pad.l + (d / dMax) * (W - pad.l - pad.r);
+  const Y = (z) => H - pad.b - ((z - zMin) / (zMax - zMin)) * (H - pad.t - pad.b);
+  const chunk = Math.max(25, Math.min(50, dMax / 10));
+  let i = 0;
+  ctx.font = '10.5px system-ui, sans-serif'; ctx.textAlign = 'center';
+  while (i < p.length - 1) {
+    let j = i + 1;
+    while (j < p.length - 1 && p[j][0] - p[i][0] < chunk) j++;
+    const g = (p[j][1] - p[i][1]) / Math.max(1, p[j][0] - p[i][0]) * 100;
+    ctx.beginPath(); ctx.moveTo(X(p[i][0]), Y(zMin));
+    for (let k = i; k <= j; k++) ctx.lineTo(X(p[k][0]), Y(p[k][1]));
+    ctx.lineTo(X(p[j][0]), Y(zMin)); ctx.closePath();
+    ctx.fillStyle = color(g); ctx.fill();
+    const w = X(p[j][0]) - X(p[i][0]);
+    if (w > 26 && g >= 1) { ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillText(Math.round(g) + '%', (X(p[i][0]) + X(p[j][0])) / 2, Y(zMin) - 5); }
+    i = j;
+  }
+  ctx.beginPath(); p.forEach(([d, z], k) => k ? ctx.lineTo(X(d), Y(z)) : ctx.moveTo(X(d), Y(z)));
+  ctx.strokeStyle = '#1d1d1b'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = '#6f6c66'; ctx.textAlign = 'right';
+  [zMin + (zMax - zMin) * 0.1, zMax - (zMax - zMin) * 0.2].forEach((z) => ctx.fillText(Math.round(z) + ' m', pad.l - 5, Y(z) + 3));
+  ctx.textAlign = 'center';
+  for (let k = 0; k <= 5; k++) {
+    const d = dMax * k / 5;
+    ctx.fillText(d >= 1000 || dMax >= 2000 ? (d / 1000).toFixed(1).replace('.', ',') + ' km' : Math.round(d) + ' m', X(d), H - 6);
+  }
+}
+window.addEventListener('resize', () => { if (state.detail) drawProfile(state.detail); });
+
+// ---------- recherche du segment Strava ----------
+// L'API Strava ne permet plus de chercher les segments d'une zone (réservé aux grosses applis
+// depuis septembre 2026), et une recherche web ne trouve plus guère de segments (leurs pages sont
+// réservées aux comptes connectés). On ouvre donc la carte des segments de Strava (maps/segments, l'outil
+// officiel « Explorer les segments »), centrée sur le milieu de la côte : Strava y montre les
+// segments populaires de la zone. Position dans l'adresse : #zoom/latitude/longitude (vérifié par
+// l'utilisateur : l'ordre inverse envoyait au mauvais endroit).
+function stravaSegmentsUrl(c) {
+  const g = c.geometry, [la, lo] = g[Math.floor(g.length / 2)];
+  const zoom = c.length_m > 4000 ? 13 : c.length_m > 1500 ? 14 : 15;
+  return `https://www.strava.com/maps/segments#${zoom}/${la.toFixed(5)}/${lo.toFixed(5)}`;
+}
+$('strava').addEventListener('click', (e) => {
+  e.preventDefault();
+  if (state.detail) window.open(stravaSegmentsUrl(state.detail), '_blank', 'noopener');
+});
+
+$('gpx').addEventListener('click', () => {
+  const c = state.detail; if (!c) return;
+  const pts = c.geometry.map(([la, lo], k) => `<trkpt lat="${la}" lon="${lo}"><ele>${c.profile[k][1]}</ele></trkpt>`).join('\n');
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="cotes-velo" xmlns="http://www.topografix.com/GPX/1/1">\n<trk><name>${esc(c.name)}</name><trkseg>\n${pts}\n</trkseg></trk>\n</gpx>`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([gpx], { type: 'application/gpx+xml' }));
+  a.download = c.name.replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 60) + '.gpx';
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+// ---------- lien vers une côte (?c=<id>) : l'adresse suit la sélection, et se partage ----------
+function climbUrl(id) { const u = new URL(location.href); u.search = id ? '?c=' + encodeURIComponent(id) : ''; u.hash = ''; return u.toString(); }
+function setClimbUrl(id) { if (climbUrl(id) !== location.href) history.replaceState(null, '', climbUrl(id)); }
+$('share').addEventListener('click', async () => {
+  const c = state.detail; if (!c) return;
+  const url = climbUrl(c.id), label = $('share').querySelector('span');
+  const title = (c.variant && c.variant !== 'principale' ? c.streets : c.name) + ` — ${fmtLen(c.length_m)} à ${fmtPct(c.avg_grade)}`;
+  if (navigator.share) {   // mobile : feuille de partage du système (Messages, WhatsApp…)
+    try { await navigator.share({ title, url }); } catch {}
+    return;
+  }
+  try { await navigator.clipboard.writeText(url); label.textContent = 'Lien copié'; }
+  catch { prompt('Lien vers cette côte :', url); }
+  setTimeout(() => { label.textContent = 'Partager'; }, 2000);
+});
+// ouverture d'un lien partagé : on centre la recherche sur la côte puis on l'ouvre
+async function openSharedClimb() {
+  const id = new URLSearchParams(location.search).get('c');
+  if (!id) return false;
+  try {
+    const r = await fetch('api/climbs/' + encodeURIComponent(id));
+    if (!r.ok) throw new Error();
+    const c = await r.json();
+    state.center = c.start; circle.setLatLng(c.start);
+    $('place').value = ''; store.set('center', c.start);
+    await query();
+    await select(id, true);
+  } catch { setClimbUrl(null); return false; }
+  return true;
+}
+
+renderHead();
+openSharedClimb().then((ok) => { if (!ok) query(); });
+pollStatus();
+</script>
+</body>
+</html>
