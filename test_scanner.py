@@ -416,6 +416,23 @@ class StoreTests(unittest.TestCase):
         r = st.search(LAT0, LON0, 10, len_min=1500, len_max=2500)
         self.assertEqual([x["id"] for x in r["climbs"]], ["B2"])
 
+    def test_search_in_box_of_visible_map(self):
+        # Plus de cercle : le tableau liste les côtes de la zone affichée (même zone que la carte)
+        import os, tempfile
+        from store import Store
+        st = Store(os.path.join(tempfile.mkdtemp(), "t.sqlite"))
+        els = [way(line(0, 0, 3000, 0), {"highway": "residential", "name": "Rue A"}, 1),
+               way(line(0, 2000, 3000, 2000), {"highway": "residential", "name": "Rue B"}, 2)]
+        climbs, stats = scanner.scan_elements(els, FakeElevation(profile_east), (LAT0, LON0), 1e9)
+        save_by_tile(st, climbs, stats)
+        s, w = ll(-500, -500)
+        n, e = ll(3500, 1000)       # ne contient que la rue A (y = 0)
+        r = st.search(LAT0, LON0, None, box=(s, w, n, e))
+        self.assertEqual({c["name"] for c in r["climbs"]}, {"Rue A"})
+        n2, _ = ll(0, 2500)
+        r = st.search(LAT0, LON0, None, box=[s, w, n2, e])   # liste (comme le serveur) acceptée
+        self.assertEqual({c["name"] for c in r["climbs"]}, {"Rue A", "Rue B"})
+
     def test_pagination_and_cache(self):
         import os, tempfile
         from store import Store

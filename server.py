@@ -35,6 +35,7 @@ import scanner
 from store import Store
 
 SEARCH_LOCK = threading.Lock()
+BOX_MAX_DEG = 1.4    # zone affichée au plus ~150 km de haut (au-delà : zoomer)
 SEARCH_MAX_KM = 30   # rayon max d'une recherche (au-delà : réponses lourdes pour peu d'intérêt)
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -165,10 +166,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, page, "text/html; charset=utf-8")
 
             if url.path == "/api/climbs":
-                lat, lon = _num(qs, "lat"), _num(qs, "lon")
-                radius = max(0.5, min(SEARCH_MAX_KM, _num(qs, "radius_km") or 10))
-                if lat is None or lon is None:
-                    return self._send(400, {"error": "lat/lon manquants"})
+                box = [_num(qs, k) for k in ("s", "w", "n", "e")]
+                if None not in box:   # zone affichée sur la carte (emprise bornée à BOX_MAX_DEG)
+                    if box[2] - box[0] > BOX_MAX_DEG or box[3] - box[1] > BOX_MAX_DEG * 1.5:
+                        return self._send(400, {"error": "zone trop grande : zoomer"})
+                    lat, lon, radius = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2, None
+                else:
+                    box = None
+                    lat, lon = _num(qs, "lat"), _num(qs, "lon")
+                    radius = max(0.5, min(SEARCH_MAX_KM, _num(qs, "radius_km") or 10))
+                    if lat is None or lon is None:
+                        return self._send(400, {"error": "lat/lon ou s/w/n/e manquants"})
                 with SEARCH_LOCK:   # une grosse recherche à la fois : borne la mémoire du serveur en ligne
                     res = self.store.search(
                         lat, lon, radius,
@@ -178,8 +186,13 @@ class Handler(BaseHTTPRequestHandler):
                         junc_max=_num(qs, "junc_max"),
                         q=qs.get("q", [""])[0].strip() or None,
                         sort=qs.get("sort", ["score"])[0], desc=qs.get("dir", ["desc"])[0] != "asc",
-                        limit=int(_num(qs, "limit") or 2000), offset=int(_num(qs, "offset") or 0))
-                    tiles = scanner.tiles_for_scan(lat, lon, radius * 1000)
+                        limit=int(_num(qs, "limit") or 2000), offset=int(_num(qs, "offset") or 0), box=box)
+                    if box:
+                        i0, j0 = scanner.osm_tile_of(box[0], box[1])
+                        i1, j1 = scanner.osm_tile_of(box[2], box[3])
+                        tiles = [(i, j) for i in range(i0, i1 + 1) for j in range(j0, j1 + 1)]
+                    else:
+                        tiles = scanner.tiles_for_scan(lat, lon, radius * 1000)
                     res["coverage"] = {"done": len(self.store.done_tiles(tiles)), "total": len(tiles)}
                     body = json.dumps(res, ensure_ascii=False, separators=(",", ":")).encode()
                     del res

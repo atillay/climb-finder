@@ -225,22 +225,29 @@ class Store:
 
     def search(self, lat, lon, radius_km, cobbles=False, minor=True, len_min=None, len_max=None,
                avg_min=None, max300_min=None, gain_min=None, junc_max=None, q=None, sort="score",
-               desc=True, limit=2000, offset=0):
+               desc=True, limit=2000, offset=0, box=None):
         """Côtes dont le pied est dans le cercle, regroupées par sommet (famille) : une entrée par
         famille, la variante principale en tête si elle correspond aux filtres (sinon la meilleure
         qui correspond), les autres variantes qui correspondent dans `variants`, de la plus courte à
         la plus longue (sans tracé). Les filtres portent sur les variantes (une famille apparaît dès
         qu'une variante correspond) ; le tri porte sur la tête affichée. Pagination : `limit` familles
-        à partir de `offset` ; le classement d'une recherche est gardé en cache (pages suivantes)."""
-        radius_m = radius_km * 1000
+        à partir de `offset` ; le classement d'une recherche est gardé en cache (pages suivantes).
+        `box` = (s, w, n, e) : les côtes de cette emprise (zone affichée sur la carte) au lieu du
+        cercle ; lat/lon servent alors seulement à la distance."""
         ky = scanner.EARTH_R * math.pi / 180
-        dlat = radius_m / ky
-        dlon = radius_m / (ky * math.cos(math.radians(lat)))
-        where, args = _filters(lat - dlat, lon - dlon, lat + dlat, lon + dlon, cobbles, minor, len_min,
+        if box:
+            s_, w_, n_, e_ = box
+            radius_m = float("inf")
+        else:
+            radius_m = radius_km * 1000
+            dlat = radius_m / ky
+            dlon = radius_m / (ky * math.cos(math.radians(lat)))
+            s_, w_, n_, e_ = lat - dlat, lon - dlon, lat + dlat, lon + dlon
+        where, args = _filters(s_, w_, n_, e_, cobbles, minor, len_min,
                                len_max, avg_min, max300_min, gain_min, junc_max, q)
         if sort not in SORTABLE or sort == "rank":
             sort, desc = "score", True if sort != "rank" else not desc
-        key = (lat, lon, radius_km, tuple(where), tuple(args), sort, desc)
+        key = (lat, lon, radius_km, tuple(box) if box else None, tuple(where), tuple(args), sort, desc)
         stamp = self._stamp()
         hit = self._cache.get(key)
         if hit and hit[0] == stamp:
@@ -251,7 +258,12 @@ class Store:
             sort_col = {"distance_km": "NULL"}.get(sort, sort)
             # on part des cases du cercle (index sur la case) : avec toute la France en base, une
             # bande de latitude couvrirait tout le pays d'est en ouest
-            tiles = [tile_key(t) for t in scanner.tiles_for_scan(lat, lon, radius_m)]
+            if box:
+                i0, j0 = scanner.osm_tile_of(s_, w_)
+                i1, j1 = scanner.osm_tile_of(n_, e_)
+                tiles = [f"{i}_{j}" for i in range(i0, i1 + 1) for j in range(j0, j1 + 1)]
+            else:
+                tiles = [tile_key(t) for t in scanner.tiles_for_scan(lat, lon, radius_m)]
             sql = (f"SELECT id, lat, lon, family, variant, score, length_m, {sort_col} "
                    f"FROM climbs INDEXED BY climbs_tile WHERE tile IN ({','.join('?' * len(tiles))}) "
                    f"AND {' AND '.join(where)}")

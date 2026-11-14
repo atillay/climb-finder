@@ -182,11 +182,6 @@
     <ul id="suggest" role="listbox" hidden></ul>
   </div>
   <button id="locate" title="Utiliser ma position">📍 Ma position</button>
-  <div class="ctrl">
-    <label for="radius">Rayon</label>
-    <input id="radius" type="range" min="1" max="30" step="1" value="15">
-    <span class="radius-val" id="radiusVal">15 km</span>
-  </div>
   <label class="ctrl"><input id="cobbles" type="checkbox"> Inclure les pavés</label>
   <label class="ctrl" title="Masque les côtes situées surtout sur des rues résidentielles ou des voies de desserte"><input id="skipMinor" type="checkbox"> Masquer les petites rues</label>
   <button id="scan" class="primary" title="Calcule en tâche de fond les cases de la zone qui ne sont pas encore en base">Calculer la zone</button>
@@ -198,7 +193,7 @@
 
 </div>
 <aside id="panel">
-<div id="status"><span id="info">Chargement…</span><span id="mapNote" class="hint" hidden>carte : les 1 500 côtes les plus difficiles de la vue, zoomer pour toutes les voir</span><span id="cov" class="cov"></span><span id="job"></span></div>
+<div id="status"><span id="info">Chargement…</span><span id="mapNote" class="hint" hidden>à ce zoom, la carte n'affiche que les 1 500 côtes les plus difficiles : zoomez pour toutes les voir</span><span id="cov" class="cov"></span><span id="job"></span></div>
 
 <main id="results">
 
@@ -260,7 +255,7 @@ const store = {
 };
 const state = {
   center: store.get('center', [48.8566, 2.3522]),
-  radius: Math.min(30, store.get('radius', 15)),
+  zoom: store.get('zoom', 12),
   sort: ['rank', 'distance_km'].includes(store.get('sort', {}).key) ? { key: 'score', dir: -1 }
     : store.get('sort', { key: 'score', dir: -1 }),
   climbs: [], total: 0, coverage: null,
@@ -275,7 +270,7 @@ const savedFilters = store.get('filters', {});
 FILTERS.forEach((id) => { if (savedFilters[id] != null) $(id).value = savedFilters[id]; });
 
 // ---------- carte ----------
-const map = L.map('map', { preferCanvas: true }).setView(state.center, 11);
+const map = L.map('map', { preferCanvas: true }).setView(state.center, state.zoom);
 const layers = {
   // plan OSM désaturé : les couleurs des côtes ressortent (le plan classique a beaucoup de routes jaunes)
   'Plan clair': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -307,8 +302,6 @@ legend.onAdd = () => {
 legend.addTo(map);
 
 const coverageLayer = L.layerGroup().addTo(map);
-const circle = L.circle(state.center, { radius: state.radius * 1000, color: '#d9480f', weight: 1.5,
-  fillOpacity: 0.03, dashArray: '6 6', interactive: false }).addTo(map);
 map.createPane('casing').style.zIndex = 399;   // sous les tracés (overlayPane = 400)
 const casingRenderer = L.canvas({ pane: 'casing' });
 const casingLayer = L.layerGroup().addTo(map);
@@ -325,14 +318,13 @@ function styleLines(st) {
 // la carte bouge toute seule (cadrage d'une côte, du cercle) : pas de nouvelle recherche
 let progMoveAt = 0;
 function progFit(bounds, opts) { progMoveAt = Date.now(); map.fitBounds(bounds, opts); }
-progFit(circle.getBounds(), { padding: [20, 20] });
-
-function setCenter(latlng, pan = false) {
-  state.center = [latlng.lat ?? latlng[0], latlng.lng ?? latlng[1]];
-  circle.setLatLng(state.center);
-  store.set('center', state.center);
-  if (pan) progFit(circle.getBounds(), { padding: [20, 20] });
-  query();
+// aller à un lieu (adresse, position) : la liste et la carte suivent la nouvelle zone affichée
+function goTo(latlng, zoom = 14) { map.setView(latlng, Math.max(zoom, map.getZoom() > 15 ? map.getZoom() : 0)); }
+// zone affichée trop grande (vue de toute une région) : on ne charge rien, on demande de zoomer
+const BOX_MAX_DEG = 1.4;
+function viewTooLarge() {
+  const b = map.getBounds();
+  return b.getNorth() - b.getSouth() > BOX_MAX_DEG || b.getEast() - b.getWest() > BOX_MAX_DEG * 1.5;
 }
 // le centre se choisit par l'adresse ou « Ma position » ; un clic sur la carte ferme seulement la fiche
 map.on('click', () => { if (state.selected) deselect(); });
@@ -369,7 +361,7 @@ function pickSuggest(i) {
   $('place').value = s.label; store.set('placeLabel', s.label);
   hideSuggest(); $('place').blur();
   if (state.selected) deselect();
-  setCenter(s.ll, true);
+  goTo(s.ll);
 }
 $('place').addEventListener('input', debounce(suggest, 200));
 $('place').addEventListener('keydown', (e) => {
@@ -388,19 +380,12 @@ $('suggest').addEventListener('mousedown', (e) => {   // mousedown : avant la pe
   const li = e.target.closest('li[data-i]'); if (li) { e.preventDefault(); pickSuggest(+li.dataset.i); }
 });
 
-$('radius').value = state.radius;
-const showRadius = () => { $('radiusVal').textContent = state.radius + ' km'; };
-showRadius();
-$('radius').addEventListener('input', (e) => {
-  state.radius = +e.target.value; showRadius(); circle.setRadius(state.radius * 1000); store.set('radius', state.radius);
-});
-$('radius').addEventListener('change', () => { progFit(circle.getBounds(), { padding: [20, 20] }); query(); });
 
 $('locate').addEventListener('click', () => {
   if (!navigator.geolocation) return setInfo('La géolocalisation n\'est pas disponible dans ce navigateur.', true);
   setInfo('Recherche de ta position…');
   navigator.geolocation.getCurrentPosition(
-    (p) => { $('place').value = ''; store.set('placeLabel', ''); setCenter([p.coords.latitude, p.coords.longitude], true); },
+    (p) => { $('place').value = ''; store.set('placeLabel', ''); goTo([p.coords.latitude, p.coords.longitude]); },
     (err) => setInfo('Position introuvable : ' + err.message, true),
     { enableHighAccuracy: true, timeout: 15000 });
 });
@@ -414,12 +399,16 @@ function setProgress(f) { $('progress').firstElementChild.style.width = (f == nu
 const PAGE = 300;
 let querySeq = 0, queryAbort = null;
 const respCache = new Map();   // 30 dernières réponses (clé = paramètres de la recherche)
+function viewBox(step) {
+  const b = map.getBounds();
+  return { s: (Math.floor(b.getSouth() / step) * step).toFixed(3), w: (Math.floor(b.getWest() / step) * step).toFixed(3),
+           n: (Math.ceil(b.getNorth() / step) * step).toFixed(3), e: (Math.ceil(b.getEast() / step) * step).toFixed(3) };
+}
 function queryParams(offset) {
   const num = (id) => $(id).value === '' ? '' : $(id).value;
   return new URLSearchParams({
-    // centre arrondi (~500 m) : un petit déplacement retombe sur une réponse déjà en cache
-    lat: (Math.round(state.center[0] / 0.005) * 0.005).toFixed(4),
-    lon: (Math.round(state.center[1] / 0.007) * 0.007).toFixed(4), radius_km: state.radius,
+    // zone affichée, arrondie (~1 km) : un petit déplacement retombe sur une réponse déjà en cache
+    ...viewBox(0.01),
     cobbles: $('cobbles').checked ? 1 : 0, minor: $('skipMinor').checked ? 0 : 1,
     len_min: num('fLenMin'), len_max: num('fLenMax'), avg_min: num('fAvg'), max300_min: num('fMax300'),
     gain_min: num('fGain'), junc_max: num('fJunc'), q: $('fName').value.trim(),
@@ -428,6 +417,12 @@ function queryParams(offset) {
 }
 async function query(append = false) {
   const seq = ++querySeq;
+  if (viewTooLarge()) {
+    if (queryAbort) queryAbort.abort();
+    showResults({ climbs: [], total: 0, total_climbs: 0, coverage: { done: 0, total: 0 } });
+    setInfo('Zoomez sur la carte pour voir les côtes de la zone.');
+    return;
+  }
   if (queryAbort) queryAbort.abort();   // la requête précédente ne sert plus : on ne la télécharge pas
   queryAbort = new AbortController();
   const slow = setTimeout(() => { if (seq === querySeq) $('count').textContent = 'Chargement…'; }, 250);
@@ -463,6 +458,7 @@ function filterParams() {
 }
 async function loadMap() {
   const seq = ++mapSeq;
+  if (viewTooLarge()) { drawMap([]); $('mapNote').hidden = true; return; }
   // emprise un peu élargie et arrondie (~2 km) : petits déplacements servis par le cache
   const b = map.getBounds().pad(0.2), st = 0.02;
   const box = { s: (Math.floor(b.getSouth() / st) * st).toFixed(2), w: (Math.floor(b.getWest() / st) * st).toFixed(2),
@@ -520,11 +516,12 @@ function showResults(res, append = false) {
   for (const c of res.climbs) { state.byId.set(c.id, c); for (const v of c.variants) state.byId.set(v.id, v); }
   const cov = res.coverage, pct = cov.total ? Math.round(100 * cov.done / cov.total) : 0;
   const nv = res.total_climbs - res.total;
-  setInfo(`<b>${res.total}</b> côte${res.total > 1 ? 's' : ''} dans un rayon de ${state.radius} km`
+  setInfo(`<b>${res.total}</b> côte${res.total > 1 ? 's' : ''} dans la zone affichée`
     + (nv > 0 ? ` (+ ${nv} variante${nv > 1 ? 's' : ''})` : '')
     + (res.total > state.climbs.length ? ` (les ${state.climbs.length} premières affichées)` : ''));
-  $('cov').innerHTML = `zone calculée à <b>${pct} %</b><span class="bar"><i style="width:${pct}%"></i></span>`
-    + (pct < 100 && !READONLY ? ' → clique sur « Calculer la zone »' : '');
+  // en ligne, le hachurage rouge montre déjà les zones non couvertes (le % compterait la mer, l'étranger)
+  $('cov').innerHTML = READONLY ? '' : `zone calculée à <b>${pct} %</b><span class="bar"><i style="width:${pct}%"></i></span>`
+    + (pct < 100 ? ' → clique sur « Calculer la zone »' : '');
   render();
 }
 
@@ -542,7 +539,7 @@ const noDataLayer = L.layerGroup().addTo(map);
 const MAX_HATCH_ROWS = 70;   // au-delà (vue très éloignée), on ne hachure pas : trop de formes
 let coverageKey = '';
 async function loadCoverage() {
-  const b = map.getBounds().extend(circle.getBounds());
+  const b = map.getBounds();
   const s = b.getSouth(), n = b.getNorth(), w = b.getWest(), e = b.getEast();
   try {
     const res = await (await fetch(`api/coverage?s=${s}&w=${w}&n=${n}&e=${e}`)).json();
@@ -573,20 +570,21 @@ async function loadCoverage() {
   } catch {}
 }
 map.on('moveend', debounce(loadCoverage, 250));
-// la recherche suit la carte quand l'utilisateur la déplace (glisser, zoom), dès que le centre a
-// bougé d'au moins 10 % du rayon ; les déplacements faits par le code ne comptent pas
+// la liste suit la zone affichée quand l'utilisateur déplace ou zoome la carte ; les cadrages faits
+// par le code (sélection d'une côte) ne la rechargent pas
 map.on('moveend', debounce(() => {
-  if (Date.now() - progMoveAt < 1500) return;
   const c = map.getCenter();
-  if (map.distance(c, state.center) < state.radius * 100) return;
-  $('place').value = ''; store.set('placeLabel', '');
-  setCenter(c, false);
+  state.center = [c.lat, c.lng];
+  store.set('center', state.center); store.set('zoom', map.getZoom());
+  if (Date.now() - progMoveAt < 1500) return;
+  query();
 }, 400));
 
 // ---------- calcul en tâche de fond ----------
 $('scan').addEventListener('click', async () => {
   const r = await fetch('api/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lat: state.center[0], lon: state.center[1], radius_km: state.radius }) });
+    body: JSON.stringify({ lat: map.getCenter().lat, lon: map.getCenter().lng,
+      radius_km: Math.min(30, map.distance(map.getCenter(), map.getBounds().getNorthEast()) / 1000) }) });
   const res = await r.json();
   $('job').textContent = res.tiles_todo ? `${res.tiles_todo} case(s) à calculer, c'est parti…` : 'Zone déjà entièrement calculée.';
   pollStatus();
@@ -789,7 +787,7 @@ function showDetail(c) {
   const stats = [
     ['Longueur', fmtLen(c.length_m)], ['D+', fmtNum(c.gain_m) + ' m'], ['Pente moy.', fmtPct(c.avg_grade)],
     ['Max 100 m', fmtPct(c.max_grade_100)], ['Max 300 m', fmtPct(c.max_grade_300)], ['Difficulté', fmtNum(c.score)],
-    ['Altitude', `${Math.round(c.alt_start)} → ${Math.round(c.alt_end)} m`], ['Distance', fmtNum(c.distance_km, 1) + ' km'], ['Revêtement', c.surface],
+    ['Altitude', `${Math.round(c.alt_start)} → ${Math.round(c.alt_end)} m`], ['Revêtement', c.surface],
     ['Carrefours', junc], ['Feux / stops', c.signals == null ? 'non relevés' : String(c.signals)],
   ];
   $('dStats').innerHTML = stats.map(([k, v]) => `<div><small>${k}</small><b>${esc(v)}</b></div>`).join('');
@@ -890,8 +888,8 @@ async function openSharedClimb() {
     const r = await fetch('api/climbs/' + encodeURIComponent(id));
     if (!r.ok) throw new Error();
     const c = await r.json();
-    state.center = c.start; circle.setLatLng(c.start);
-    $('place').value = ''; store.set('center', c.start);
+    progMoveAt = Date.now(); map.setView(c.start, 14);
+    $('place').value = '';
     await query();
     await select(id, true);
   } catch { setClimbUrl(null); return false; }

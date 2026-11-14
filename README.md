@@ -6,7 +6,7 @@ variantes) à partir d'OpenStreetMap et du modèle de terrain de l'IGN.
 
 **En ligne : https://climb-finder.alty.fr/**
 
-- Recherche autour d'une adresse, de ta position, ou de la zone affichée sur la carte (jusqu'à 30 km).
+- Les côtes de la zone affichée sur la carte : on se déplace, on zoome, on cherche une adresse.
 - Pour chaque côte : longueur, dénivelé, pente moyenne et maximale (sur 100 m et 300 m), score de
   difficulté, profil coloré, revêtement (pavés repérés), nombre de carrefours et de feux/stops.
 - Les **variantes** : les autres façons d'arriver au même sommet en enchaînant plusieurs rues.
@@ -67,9 +67,10 @@ HTTPS (Caddy, nginx…).
 
 ## Utilisation du site
 
-- **Centre** : le champ d'adresse (suggestions au fil de la frappe, API Adresse de l'État),
-  « Ma position », ou simplement en déplaçant la carte : la recherche suit son centre.
-  **Rayon** : le curseur (30 km au plus).
+- **Zone** : la liste et la carte montrent les côtes de la zone affichée. On s'y déplace à la souris,
+  par le champ d'adresse (suggestions au fil de la frappe, API Adresse de l'État) ou « Ma position ».
+  Vue trop large (plus de ~150 km) : rien n'est chargé, il faut zoomer. En vue large, la carte ne
+  dessine que les 1 500 côtes les plus difficiles (signalé) ; la liste, paginée, les contient toutes.
 - **Disposition** : sur ordinateur, la carte à gauche et la liste à droite (seule la liste défile) ;
   sur mobile, la carte en haut et la liste en dessous.
 - **Tableau** : tri par colonne, filtres (longueur, pente, D+, carrefours, nom), pages de 300.
