@@ -77,7 +77,8 @@ HTTPS (Caddy, nginx…).
   Le nom reste fixe pendant le défilement horizontal. Une ligne par sommet ; « + N variantes »
   déplie les autres façons d'y arriver.
 - **Fiche d'une côte** : clic sur la ligne ou sur le tracé (↑ ↓ pour passer à la suivante). Elle
-  recouvre la liste, la carte montrant la côte ; ✕, Échap ou un clic sur la carte reviennent à
+  recouvre la liste, la carte montrant la côte ; le viseur recentre la carte sur la côte après
+  un déplacement ; ✕, Échap ou un clic sur la carte reviennent à
   la liste et réaffichent toutes les côtes, sans déplacer la carte.
 - **Lien** : chaque côte a son adresse (`?c=<id>`), que le bouton « Partager » envoie ou copie.
 - **Carte** : toutes les côtes de la zone visible (en vue très large, les 1 500 plus difficiles),
