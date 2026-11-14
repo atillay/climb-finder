@@ -70,10 +70,14 @@ HTTPS (Caddy, nginx…).
 - **Centre** : le champ d'adresse (suggestions au fil de la frappe, API Adresse de l'État),
   « Ma position », ou simplement en déplaçant la carte : la recherche suit son centre.
   **Rayon** : le curseur (30 km au plus).
+- **Disposition** : sur ordinateur, la carte à gauche et la liste à droite (seule la liste défile) ;
+  sur mobile, la carte en haut et la liste en dessous.
 - **Tableau** : tri par colonne, filtres (longueur, pente, D+, carrefours, nom), pages de 300.
-  Une ligne par sommet ; « + N variantes » déplie les autres façons d'y arriver.
-- **Fiche d'une côte** : clic sur la ligne ou sur le tracé (↑ ↓ pour passer à la suivante). ✕ ferme
-  la fiche en restant sur la côte ; Échap ou un clic sur la carte désélectionne.
+  Le nom reste fixe pendant le défilement horizontal. Une ligne par sommet ; « + N variantes »
+  déplie les autres façons d'y arriver.
+- **Fiche d'une côte** : clic sur la ligne ou sur le tracé (↑ ↓ pour passer à la suivante). Elle
+  recouvre la liste, la carte montrant la côte ; ✕ revient à la liste en restant sur la côte ;
+  Échap ou un clic sur la carte désélectionne.
 - **Lien** : chaque côte a son adresse (`?c=<id>`), que le bouton « Partager » envoie ou copie.
 - **Carte** : toutes les côtes de la zone visible (en vue très large, les 1 500 plus difficiles),
   indépendamment de la pagination du tableau ; couleur = pente moyenne ; zones non calculées hachurées.

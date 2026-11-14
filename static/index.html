@@ -15,10 +15,21 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--ink);
     font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  /* la page tient dans l'écran : en-tête + carte en haut (la moitié), résultats en bas avec leur propre défilement */
+  /* la page tient dans l'écran. Mobile : carte en haut (la moitié), panneau (liste) en dessous.
+     Ordinateur : carte à gauche, panneau à droite, chacun 50 % ; seul le panneau défile. La fiche
+     d'une côte recouvre le panneau (pas la carte) : on reste focalisé sur elle, la carte la montre. */
   body { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
   body > header, #mapWrap, #status { flex: none; }
+  #layout { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #panel { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
   #results { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  @media (min-width: 900px) {
+    #layout { flex-direction: row; }
+    #mapWrap { flex: 0 0 50%; }
+    #map { height: 100% !important; border-bottom: none !important; }
+    #mapWrap, #panel { min-width: 0; }   /* le tableau ne doit pas élargir le panneau */
+    #panel { flex: 0 0 50%; border-left: 1px solid var(--line); }
+  }
   header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
     padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
     position: relative; z-index: 1200; }
@@ -42,6 +53,9 @@
   #suggest li small { display: block; color: var(--muted); font-size: 12px; }
   #suggest li.on, #suggest li:hover { background: var(--sel); }
   #more { display: block; margin: 14px auto 0; }
+  /* défilement horizontal du tableau (mobile) : filtres, bouton et messages restent en place */
+  #filters, #more, .empty { position: sticky; left: 0; }
+  #filters { box-sizing: border-box; max-width: 100cqw; }
   .ctrl input[type=range] { width: 170px; accent-color: var(--accent); }
   .radius-val { font-variant-numeric: tabular-nums; min-width: 48px; font-weight: 600; }
   .hint { color: var(--muted); font-size: 12.5px; }
@@ -60,19 +74,20 @@
   .cov .bar { width: 70px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
   .cov .bar i { display: block; height: 100%; background: #6aa84f; }
 
-  /* fiche de la côte sélectionnée : en surimpression à droite de la carte */
-  #detail { display: none; position: absolute; top: 10px; right: 10px; bottom: 10px; z-index: 1001;
-    width: 360px; max-width: calc(100% - 20px); overflow: auto; padding: 10px 14px;
-    background: rgba(255,255,255,.97); border: 1px solid var(--line); border-radius: 10px;
-    box-shadow: 0 4px 16px rgba(0,0,0,.18); }
+  /* fiche de la côte sélectionnée : recouvre tout le panneau (liste), ✕ pour revenir à la liste */
+  #detail { display: none; position: absolute; inset: 0; z-index: 20; overflow: auto; padding: 16px 20px 32px;
+    background: var(--panel); }
   #detail.show { display: block; }
-  #detail h2 { font-size: 16px; margin: 0 0 6px; display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
-  #close { border: none; background: transparent; font-size: 18px; line-height: 1; padding: 0 4px; color: var(--muted); }
-  #close:hover { color: var(--ink); }
+  #detail h2 { font-size: 20px; margin: 0 0 4px; display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
+  #close { flex: none; border: 1px solid var(--line); background: var(--panel); font-size: 18px; line-height: 1;
+    width: 36px; height: 36px; padding: 0; border-radius: 50%; color: var(--ink); }
+  #close:hover { background: #f4f1ec; }
   .stats { display: grid; grid-template-columns: repeat(3, auto); gap: 4px 14px; margin-bottom: 8px; }
   .stats div small { display: block; color: var(--muted); font-size: 11px; line-height: 1.2; }
-  #detail .stats { margin-bottom: 0; }
-  #detail h2 { font-size: 15px; margin-bottom: 4px; }
+  #detail .stats { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px 18px; margin: 12px 0 4px; }
+  #detail .stats div small { font-size: 12px; }
+  #detail .stats div b { font-size: 17px; }
+  #dStreets { font-size: 13.5px !important; }
   .stats div b { font-variant-numeric: tabular-nums; }
   .actions { display: flex; gap: 6px; flex-wrap: wrap; }
   .actions a, .actions button { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px;
@@ -85,7 +100,9 @@
   #sv { background: #1a73e8; }
   #osm { background: #5a9a48; }
   #strava { background: #fc4c02; }
-  #profile { width: 100%; height: 100px; display: block; margin: 6px 0; }
+  #profile { width: 100%; height: 190px; display: block; margin: 14px 0; }
+  #detail .actions { gap: 8px; }
+  #detail .actions a, #detail .actions button { font-size: 13.5px; padding: 8px 12px; }
 
   #filters { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 16px; }
   #filters label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
@@ -98,8 +115,12 @@
     font-variant-numeric: tabular-nums; }
   th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
   th:first-child, td:first-child { padding-left: 16px; } th:last-child, td:last-child { padding-right: 16px; }
-  th:nth-child(2), td:nth-child(2), th:last-child, td:last-child { text-align: left; }
-  td:nth-child(2) { white-space: normal; min-width: 180px; }
+  th:first-child, td:first-child, th:last-child, td:last-child { text-align: left; }
+  td:first-child { white-space: normal; min-width: 180px; }
+  /* le nom reste fixe à gauche, les autres colonnes défilent horizontalement sous lui */
+  th:first-child, td:first-child { position: sticky; left: 0; z-index: 1; background: var(--panel);
+    box-shadow: inset -1px 0 0 var(--line); }
+  th:first-child { z-index: 3; background: #faf9f7; }
   th { white-space: normal; }   /* en-têtes sur deux lignes si besoin : le tableau tient dans la largeur */
   th { position: sticky; top: 0; background: #faf9f7; font-size: 12px; text-transform: uppercase;
     letter-spacing: .03em; color: var(--muted); cursor: pointer; user-select: none; z-index: 2; }
@@ -107,8 +128,9 @@
   th.sorted { color: var(--accent); }
   th .arrow { display: inline-block; width: 10px; }
   tbody tr { cursor: pointer; }
-  tbody tr:hover { background: #faf7f3; }
-  tbody tr.selected { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); }
+  tbody tr:hover, tbody tr:hover td:first-child { background: #faf7f3; }
+  tbody tr.selected, tbody tr.selected td:first-child { background: var(--sel); }
+  tbody tr.selected td:first-child { box-shadow: inset 3px 0 0 var(--accent), inset -1px 0 0 var(--line); }
   .score { display: inline-block; min-width: 46px; padding: 2px 7px; border-radius: 6px; color: #fff; font-weight: 600; text-align: center; }
   .grade { display: inline-flex; align-items: center; gap: 6px; }
   .grade i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
@@ -118,7 +140,7 @@
   tbody tr.variant td { background: #fbfaf8; font-size: 13px; border-bottom-color: #efece7; }
   tbody tr.variant:hover td { background: #f6f2ec; }
   tbody tr.variant.selected td { background: var(--sel); }
-  tbody tr.variant td:nth-child(2) { padding-left: 26px; }
+  tbody tr.variant td:first-child { padding-left: 26px; }
   .vtoggle { font-size: 11.5px; padding: 1px 8px; margin-left: 6px; border-radius: 10px; color: var(--accent);
     white-space: nowrap; vertical-align: 1px; }
   .vkind { font-size: 11px; color: var(--muted); margin-left: 4px; white-space: nowrap; }
@@ -134,9 +156,20 @@
   .legend.collapsed .legend-title::after { content: ' ▸'; }
   .legend i { display: inline-block; width: 14px; height: 4px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
   @media (max-width: 720px) {
-    .table-wrap { overflow-x: auto; }
     .ctrl input[type=range] { width: 120px; }
     #place { width: 200px; }
+  }
+  /* panneau étroit (moitié d'écran) : tableau resserré, colonnes secondaires masquées (dans la fiche) */
+  #panel { container-type: inline-size; }
+  @container (max-width: 900px) {
+    th, td { padding: 7px 5px; font-size: 13px; }
+    th:first-child, td:first-child { padding-left: 12px; } th:last-child, td:last-child { padding-right: 12px; }
+    td:first-child { min-width: 140px; max-width: 220px; }
+    .score { min-width: 40px; padding: 2px 5px; }
+    td .sub { display: none; }           /* suite des rues : dans la fiche */
+    th { letter-spacing: 0; font-size: 11px; }
+    #filters { padding: 10px 12px; gap: 8px 12px; }
+    #filters input[type=number] { width: 62px; }
   }
 </style>
 </head>
@@ -159,24 +192,12 @@
   <button id="scan" class="primary" title="Calcule en tâche de fond les cases de la zone qui ne sont pas encore en base">Calculer la zone</button>
   <div id="progress"><div></div></div>
 </header>
+<div id="layout">
 <div id="mapWrap">
 <div id="map"></div>
-<section id="detail">
-  <div>
-    <h2><span id="dName"></span><button id="close" title="Désélectionner (Échap)">✕</button></h2>
-    <div id="dStreets"></div>
-    <div class="stats" id="dStats"></div>
-    <canvas id="profile"></canvas>
-    <div class="actions">
-      <button id="share" title="Lien vers cette côte"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg><span>Partager</span></button>
-      <button id="gpx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Exporter GPX</button>
-      <a id="sv" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Street View au pied</a>
-      <a id="osm" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>Voir sur OSM</a>
-      <a id="strava" href="#" title="Ouvre la carte des segments Strava sur cette côte (compte Strava connecté)"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169"/></svg>Segments Strava</a>
-    </div>
-  </div>
-</section>
+
 </div>
+<aside id="panel">
 <div id="status"><span id="info">Chargement…</span><span id="mapNote" class="hint" hidden>carte : les 1 500 côtes les plus difficiles de la vue, zoomer pour toutes les voir</span><span id="cov" class="cov"></span><span id="job"></span></div>
 
 <main id="results">
@@ -200,6 +221,23 @@
   <div class="empty" id="empty">Aucun résultat pour l'instant.</div>
 </div>
 </main>
+<section id="detail">
+  <div>
+    <h2><span id="dName"></span><button id="close" title="Revenir à la liste (Échap)" aria-label="Fermer">✕</button></h2>
+    <div id="dStreets"></div>
+    <div class="stats" id="dStats"></div>
+    <canvas id="profile"></canvas>
+    <div class="actions">
+      <button id="share" title="Lien vers cette côte"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg><span>Partager</span></button>
+      <button id="gpx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Exporter GPX</button>
+      <a id="sv" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Street View au pied</a>
+      <a id="osm" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>Voir sur OSM</a>
+      <a id="strava" href="#" title="Ouvre la carte des segments Strava sur cette côte (compte Strava connecté)"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169"/></svg>Segments Strava</a>
+    </div>
+  </div>
+</section>
+</aside>
+</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -223,7 +261,8 @@ const store = {
 const state = {
   center: store.get('center', [48.8566, 2.3522]),
   radius: Math.min(30, store.get('radius', 15)),
-  sort: store.get('sort', { key: 'score', dir: -1 }),
+  sort: ['rank', 'distance_km'].includes(store.get('sort', {}).key) ? { key: 'score', dir: -1 }
+    : store.get('sort', { key: 'score', dir: -1 }),
   climbs: [], total: 0, coverage: null,
   selected: null, detail: null,
   byId: new Map(), visible: [], open: new Set(),   // côtes et variantes affichées, familles dépliées
@@ -578,7 +617,6 @@ async function pollStatus() {
 
 // ---------- tableau ----------
 const COLS = [
-  { key: 'rank', label: '#', dir: 1 },
   { key: 'name', label: 'Nom', dir: 1 },
   { key: 'length_m', label: 'Longueur', dir: -1 },
   { key: 'gain_m', label: 'D+', dir: -1 },
@@ -586,14 +624,13 @@ const COLS = [
   { key: 'max_grade_100', label: 'Max 100 m', dir: -1 },
   { key: 'max_grade_300', label: 'Max 300 m', dir: -1 },
   { key: 'score', label: 'Difficulté', dir: -1 },
-  { key: 'distance_km', label: 'Distance', dir: 1 },
   { key: 'junctions', label: 'Carref.', dir: 1 },
   { key: 'surface', label: 'Revêtement', dir: 1 },
 ];
 function renderHead() {
   $('head').innerHTML = COLS.map((c) => {
     const on = state.sort.key === c.key;
-    return `<th data-key="${c.key}" class="${on ? 'sorted' : ''}">${c.label} <span class="arrow">${on ? (state.sort.dir < 0 ? '▼' : '▲') : ''}</span></th>`;
+    return `<th data-key="${c.key}" class="c-${c.key}${on ? ' sorted' : ''}">${c.label} <span class="arrow">${on ? (state.sort.dir < 0 ? '▼' : '▲') : ''}</span></th>`;
   }).join('');
 }
 $('head').addEventListener('click', (e) => {
@@ -626,10 +663,10 @@ function nameCell(c, sub) {
 }
 const rowHtml = (c, sub) => `
     <tr data-id="${c.id}" class="${sub ? 'variant' : ''}${c.id === state.selected ? ' selected' : ''}">
-      <td>${sub ? '' : c.rank}</td><td>${nameCell(c, sub)}</td><td>${fmtLen(c.length_m)}</td><td>${fmtNum(c.gain_m)} m</td>
-      <td>${gradeCell(c.avg_grade)}</td><td>${gradeCell(c.max_grade_100)}</td><td>${gradeCell(c.max_grade_300)}</td>
+      <td>${nameCell(c, sub)}</td><td>${fmtLen(c.length_m)}</td><td>${fmtNum(c.gain_m)} m</td>
+      <td>${gradeCell(c.avg_grade)}</td><td class="c-max_grade_100">${gradeCell(c.max_grade_100)}</td><td class="c-max_grade_300">${gradeCell(c.max_grade_300)}</td>
       <td><span class="score" style="background:${scoreColor(c.score)}">${fmtNum(c.score)}</span></td>
-      <td>${fmtNum(c.distance_km, 1)} km</td><td>${juncCell(c)}</td><td>${surfaceTag(c.surface)}</td>
+      <td>${juncCell(c)}</td><td class="c-surface">${surfaceTag(c.surface)}</td>
     </tr>`;
 
 function render() {
@@ -737,13 +774,10 @@ function drawHighlight(c) {
   ]).addTo(map);
   startMarker = L.circleMarker(c.start, { radius: 6, color: '#fff', weight: 2, fillColor: '#1d1d1b', fillOpacity: 1 })
     .bindTooltip('Pied de la côte').addTo(map);
-  fitClimb(c, true);
+  fitClimb(c);
 }
-// cadre la côte : fiche ouverte (360 px à droite) -> dans la partie gauche de la carte, sauf si la
-// carte est trop étroite (mobile, la fiche la recouvre de toute façon) ; fiche fermée -> pleine carte
-function fitClimb(c, withDetail = $('detail').classList.contains('show')) {
-  const mw = map.getSize().x, side = withDetail && mw >= 640 ? Math.min(380, mw - 20) : 30;
-  progFit(L.latLngBounds(c.geometry), { paddingTopLeft: [40, 30], paddingBottomRight: [side, 30], maxZoom: 16 });
+function fitClimb(c) {   // la fiche recouvre la liste, pas la carte : toute la carte pour la côte
+  progFit(L.latLngBounds(c.geometry), { paddingTopLeft: [40, 30], paddingBottomRight: [30, 30], maxZoom: 16 });
 }
 
 function showDetail(c) {
