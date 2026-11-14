@@ -699,9 +699,7 @@ $('rows').addEventListener('click', (e) => {
     render(); return;
   }
   const tr = e.target.closest('tr'); if (!tr) return;
-  if (tr.dataset.id !== state.selected) return select(tr.dataset.id, false);
-  // même côte : fiche fermée -> on la rouvre ; fiche ouverte -> on désélectionne
-  if (state.detail && !$('detail').classList.contains('show')) showDetail(state.detail); else deselect();
+  if (tr.dataset.id !== state.selected) select(tr.dataset.id, false); else deselect();
 });
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT') return;
@@ -712,7 +710,7 @@ document.addEventListener('keydown', (e) => {
   const next = state.visible[Math.max(0, Math.min(state.visible.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
   select(next.id, true);
 });
-$('close').addEventListener('click', () => closeDetail());
+$('close').addEventListener('click', () => deselect());
 
 // ---------- sélection ----------
 const familyLayer = L.layerGroup().addTo(map);
@@ -721,13 +719,8 @@ function clearHighlight() {
   if (highlight) { map.removeLayer(highlight); highlight = null; }
   if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
 }
-// ✕ : on ferme seulement la fiche, la côte reste sélectionnée et la carte se recadre dessus en
-// pleine largeur (sur mobile, la fiche recouvrait toute la carte)
-function closeDetail() {
-  $('detail').classList.remove('show');
-  if (state.detail) fitClimb(state.detail);
-}
-// Échap, clic sur la carte : plus de sélection ; la carte ne bouge pas
+// ✕, Échap, clic sur la carte : retour à la liste, plus de sélection (les autres côtes
+// réapparaissent normalement sur la carte) ; la carte ne bouge pas
 function deselect() {
   if (!state.selected) return;
   state.selected = null; state.detail = null;
