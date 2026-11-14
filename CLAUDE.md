@@ -63,8 +63,9 @@ pkill -TERM -f lancer-france; pkill -TERM -f "caffeinate -i bash"; pkill -TERM -
 
 ## Surveiller et réparer le calcul de fond
 
-Objectif de l'utilisateur : que le remplissage de la base (50 km autour de Paris, ~470 cases)
-avance en autonomie, et que les problèmes soient corrigés sans lui.
+Objectif de l'utilisateur : que le calcul avance en autonomie (toute la France est en base depuis
+le 14/11/2026, ALGO_VERSION 6, ~1 million de côtes et variantes), et que les problèmes soient
+corrigés sans lui.
 
 1. Vérifier qu'il tourne (`pgrep -fl precompute.py`) et qu'il avance (`precompute.py --status`,
    fin de `logs/precompute.log`, champ `updated` de `data/precompute_status.json`).
@@ -78,3 +79,23 @@ avance en autonomie, et que les problèmes soient corrigés sans lui.
 3. Le calcul d'une case avec les variantes prend 5 à 20 s (plus en ville dense) : c'est normal.
 4. Ne jamais supprimer `data/cotes.sqlite`. `cache/` peut être supprimé (il se reconstruit, mais
    le retéléchargement est long).
+5. Mac en veille (écran rabattu) : `caffeinate -i` n'empêche que la veille par inactivité ; les
+   calculs et les pauses (`sleep 3600` de lancer-*.sh) sont alors suspendus. Au réveil, tuer ce
+   `sleep` pour reprendre tout de suite.
+6. Pas de `max_tasks_per_child` dans les `ProcessPoolExecutor` : le pool se fige sans rien
+   journaliser (blocage du 13/11/2026). `france.py` crée un pool par bloc et abandonne un bloc dont
+   aucune case n'avance pendant 15 min.
+
+## Méthode de travail
+
+- Après une modification : `python3 test_scanner.py`, vérification dans le navigateur pour
+  l'interface (bureau et mobile 390 px), `./deployer.sh`, puis commit (en français) et push.
+- Dépôt public (github.com/atillay/climb-finder) : aucun détail du serveur dans le code versionné.
+  Hôte, port SSH et URL dans `deploy.env` ; notes serveur dans `CLAUDE.local.md` (tous deux ignorés).
+  Avant chaque commit, vérifier `git grep` (hôte, port, autres services, secrets).
+- Changement de détection : proposer les seuils à l'utilisateur avant de coder (il les ajuste),
+  et regrouper les changements : chaque `ALGO_VERSION` oblige à retélécharger les cartes
+  d'altitude de toute la France (~10 h ; elles sont supprimées après calcul).
+- Liens externes vérifiés : carte des segments Strava `strava.com/maps/segments#zoom/lat/lon`
+  (latitude d'abord) ; l'API Strava ne permet plus de chercher les segments d'une zone, et les
+  moteurs de recherche n'indexent plus les pages de segments.
