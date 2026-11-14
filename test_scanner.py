@@ -438,6 +438,32 @@ class StoreTests(unittest.TestCase):
         save_by_tile(st, [dict(climb(99), id="new", score=1000.0, start=list(far))])
         self.assertEqual(st.search(LAT0, LON0, 10, limit=1)["climbs"][0]["id"], "new")
 
+    def test_map_shows_all_climbs_of_view_not_only_top(self):
+        # La carte ne doit pas se limiter à la page du tableau (les 300 plus difficiles) : toutes les
+        # côtes principales de la zone visible, filtres compris ; au-delà du plafond, les plus difficiles
+        import os, tempfile
+        from store import Store
+        st = Store(os.path.join(tempfile.mkdtemp(), "t.sqlite"))
+
+        def climb(k, variant="principale", surface="confirmé"):
+            la, lo = ll(10 * k, 0)
+            return {"id": f"c{k}", "start": [la, lo], "end": [la + 0.001, lo], "name": f"c{k}", "highway": "residential",
+                    "surface": surface, "length_m": 100 + k, "gain_m": 10, "ascent_m": 10, "avg_grade": 5,
+                    "max_grade_100": 6, "max_grade_300": 6, "score": float(k), "alt_start": 0, "alt_end": 10,
+                    "geometry": [[la + i * 1e-4, lo] for i in range(30)], "profile": [[0, 0], [100, 10]],
+                    "family": f"c{k}", "variant": variant}
+        save_by_tile(st, [climb(k) for k in range(20)] + [climb(20, "longue"), climb(21, surface="pavés")])
+        s, w = ll(-1000, -1000)
+        n, e = ll(1000, 1000)
+        r = st.map_climbs(s, w, n, e)
+        self.assertEqual(sorted(c["id"] for c in r["climbs"]), sorted(f"c{k}" for k in range(20)))
+        self.assertFalse(r["truncated"])
+        self.assertEqual(len(r["climbs"][0]["geometry"]), 12)                 # tracé simplifié
+        self.assertIn("c21", [c["id"] for c in st.map_climbs(s, w, n, e, cobbles=True)["climbs"]])
+        r = st.map_climbs(s, w, n, e, limit=5)
+        self.assertEqual([c["id"] for c in r["climbs"]], ["c19", "c18", "c17", "c16", "c15"])
+        self.assertTrue(r["truncated"])
+
     def test_dem_bilinear_and_decode(self):
         dem = scanner.DemService.__new__(scanner.DemService)
         dem.tiles = {}

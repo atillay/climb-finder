@@ -75,7 +75,8 @@ HTTPS (Caddy, nginx…).
 - **Fiche d'une côte** : clic sur la ligne ou sur le tracé (↑ ↓ pour passer à la suivante). ✕ ferme
   la fiche en restant sur la côte ; Échap ou un clic sur la carte désélectionne.
 - **Lien** : chaque côte a son adresse (`?c=<id>`), que le bouton « Partager » envoie ou copie.
-- **Carte** : couleur = pente moyenne ; zones non calculées hachurées en rouge.
+- **Carte** : toutes les côtes de la zone visible (en vue très large, les 1 500 plus difficiles),
+  indépendamment de la pagination du tableau ; couleur = pente moyenne ; zones non calculées hachurées.
 
 ## Comment c'est calculé
 

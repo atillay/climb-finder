@@ -185,6 +185,18 @@ class Handler(BaseHTTPRequestHandler):
                     del res
                 return self._send(200, body, cache=True)
 
+            if url.path == "/api/map":   # côtes de la zone visible, pour la carte (indépendant du tableau)
+                box = [_num(qs, k) for k in ("s", "w", "n", "e")]
+                if None in box:
+                    return self._send(400, {"error": "s/w/n/e manquants"})
+                with SEARCH_LOCK:
+                    res = self.store.map_climbs(
+                        *box, cobbles=qs.get("cobbles", ["0"])[0] == "1", minor=qs.get("minor", ["1"])[0] == "1",
+                        len_min=_num(qs, "len_min"), len_max=_num(qs, "len_max"), avg_min=_num(qs, "avg_min"),
+                        max300_min=_num(qs, "max300_min"), gain_min=_num(qs, "gain_min"),
+                        junc_max=_num(qs, "junc_max"), q=qs.get("q", [""])[0].strip() or None)
+                return self._send(200, res, cache=True)
+
             if url.path.startswith("/api/climbs/"):
                 c = self.store.get(url.path.rsplit("/", 1)[-1])
                 return self._send(200, c, cache=True) if c else self._send(404, {"error": "côte inconnue"})

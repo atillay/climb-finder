@@ -31,6 +31,8 @@ INSERT_COLS = ["id", "tile", "lat", "lon", "end_lat", "end_lon", "name", "highwa
                "alt_start", "alt_end", "geom_light", "geometry", "profile",
                "family", "variant", "streets", "junctions", "main_junctions", "signals"]
 LIGHT_GEOM_POINTS = 40
+MAP_LIMIT = 1500           # côtes au plus sur la carte (vue très large : les plus difficiles)
+MAP_GEOM_POINTS = 12       # tracé simplifié pour la carte
 SEARCH_CACHE_SIZE = 3      # recherches classées gardées en mémoire (pages « Afficher plus »)
 
 SCHEMA = """
@@ -103,6 +105,27 @@ def decode_pairs(text, scales):
 def light_geometry(text):
     """Tracé allégé (carte) à partir du tracé stocké."""
     return scanner._downsample(decode_pairs(text, GEOM_SCALES), LIGHT_GEOM_POINTS)
+
+
+def _filters(s, w, n, e, cobbles=False, minor=True, len_min=None, len_max=None, avg_min=None,
+             max300_min=None, gain_min=None, junc_max=None, q=None):
+    """Conditions SQL communes au tableau (search) et à la carte (map_climbs)."""
+    where = ["lat BETWEEN ? AND ?", "lon BETWEEN ? AND ?"]
+    args = [s, n, w, e]
+    if not cobbles:
+        where.append("surface != 'pavés'")
+    if not minor:
+        where.append("minor = 0")
+    for col, op, v in (("length_m", ">=", len_min), ("length_m", "<=", len_max),
+                       ("avg_grade", ">=", avg_min), ("max_grade_300", ">=", max300_min),
+                       ("gain_m", ">=", gain_min), ("junctions", "<=", junc_max)):
+        if v is not None:
+            where.append(f"{col} {op} ?")
+            args.append(v)
+    if q:
+        where.append("(name LIKE ? OR streets LIKE ?)")
+        args += [f"%{q}%", f"%{q}%"]
+    return where, args
 
 
 def tile_key(t):
@@ -213,21 +236,8 @@ class Store:
         ky = scanner.EARTH_R * math.pi / 180
         dlat = radius_m / ky
         dlon = radius_m / (ky * math.cos(math.radians(lat)))
-        where = ["lat BETWEEN ? AND ?", "lon BETWEEN ? AND ?"]
-        args = [lat - dlat, lat + dlat, lon - dlon, lon + dlon]
-        if not cobbles:
-            where.append("surface != 'pavés'")
-        if not minor:
-            where.append("minor = 0")
-        for col, op, v in (("length_m", ">=", len_min), ("length_m", "<=", len_max),
-                           ("avg_grade", ">=", avg_min), ("max_grade_300", ">=", max300_min),
-                           ("gain_m", ">=", gain_min), ("junctions", "<=", junc_max)):
-            if v is not None:
-                where.append(f"{col} {op} ?")
-                args.append(v)
-        if q:
-            where.append("(name LIKE ? OR streets LIKE ?)")
-            args += [f"%{q}%", f"%{q}%"]
+        where, args = _filters(lat - dlat, lon - dlon, lat + dlat, lon + dlon, cobbles, minor, len_min,
+                               len_max, avg_min, max300_min, gain_min, junc_max, q)
         if sort not in SORTABLE or sort == "rank":
             sort, desc = "score", True if sort != "rank" else not desc
         key = (lat, lon, radius_km, tuple(where), tuple(args), sort, desc)
@@ -311,6 +321,29 @@ class Store:
             c["variants"] = [full[v[0]] for v in variants]
             out.append(c)
         return {"climbs": out, "total": total, "total_climbs": n_found, "offset": offset}
+
+    def map_climbs(self, s, w, n, e, limit=MAP_LIMIT, **filters):
+        """Côtes principales dont le pied est dans l'emprise (s, w, n, e), pour la carte, quels que
+        soient le tri et la pagination du tableau : tracé simplifié (MAP_GEOM_POINTS points). Au-delà
+        de `limit` (vue très large), les plus difficiles."""
+        where, args = _filters(s, w, n, e, **filters)
+        where.append("(variant = 'principale' OR variant IS NULL)")
+        i0, j0 = scanner.osm_tile_of(s, w)
+        i1, j1 = scanner.osm_tile_of(n, e)
+        index = ""
+        if (i1 - i0 + 1) * (j1 - j0 + 1) <= 3000:   # emprise raisonnable : par l'index des cases
+            tiles = [f"{i}_{j}" for i in range(i0, i1 + 1) for j in range(j0, j1 + 1)]
+            where.insert(0, f"tile IN ({','.join('?' * len(tiles))})")
+            args = tiles + args
+            index = "INDEXED BY climbs_tile "
+        sql = (f"SELECT id, name, length_m, avg_grade, geometry FROM climbs {index}WHERE {' AND '.join(where)} "
+               f"ORDER BY score DESC LIMIT ?")
+        with self._conn() as con:
+            rows = con.execute(sql, args + [limit + 1]).fetchall()
+        out = [{"id": r[0], "name": r[1], "length_m": r[2], "avg_grade": r[3],
+                "geometry": scanner._downsample(decode_pairs(r[4], GEOM_SCALES), MAP_GEOM_POINTS)}
+               for r in rows[:limit]]
+        return {"climbs": out, "truncated": len(rows) > limit}
 
     def family(self, family):
         """Toutes les variantes d'une famille (tracés allégés), de la plus courte à la plus longue."""

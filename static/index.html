@@ -177,7 +177,7 @@
   </div>
 </section>
 </div>
-<div id="status"><span id="info">Chargement…</span><span id="cov" class="cov"></span><span id="job"></span></div>
+<div id="status"><span id="info">Chargement…</span><span id="mapNote" class="hint" hidden>carte : les 1 500 côtes les plus difficiles de la vue, zoomer pour toutes les voir</span><span id="cov" class="cov"></span><span id="job"></span></div>
 
 <main id="results">
 
@@ -409,8 +409,68 @@ async function query(append = false) {
     if (e.name === 'AbortError') return;
     setInfo('Erreur : ' + e.message, true);
   } finally { clearTimeout(slow); }
-  if (!append) loadCoverage();
+  if (!append) { loadCoverage(); loadMap(); }
 }
+
+// ---------- carte : toutes les côtes de la zone visible (indépendant du tableau paginé) ----------
+// tracés simplifiés ; en vue très large, les 2 000 plus difficiles (le serveur le signale)
+const mapCache = new Map();
+let mapSeq = 0, mapTruncated = false;
+function filterParams() {
+  const num = (id) => $(id).value === '' ? '' : $(id).value;
+  return { cobbles: $('cobbles').checked ? 1 : 0, minor: $('skipMinor').checked ? 0 : 1,
+    len_min: num('fLenMin'), len_max: num('fLenMax'), avg_min: num('fAvg'), max300_min: num('fMax300'),
+    gain_min: num('fGain'), junc_max: num('fJunc'), q: $('fName').value.trim() };
+}
+async function loadMap() {
+  const seq = ++mapSeq;
+  // emprise un peu élargie et arrondie (~2 km) : petits déplacements servis par le cache
+  const b = map.getBounds().pad(0.2), st = 0.02;
+  const box = { s: (Math.floor(b.getSouth() / st) * st).toFixed(2), w: (Math.floor(b.getWest() / st) * st).toFixed(2),
+                n: (Math.ceil(b.getNorth() / st) * st).toFixed(2), e: (Math.ceil(b.getEast() / st) * st).toFixed(2) };
+  const key = new URLSearchParams({ ...box, ...filterParams() }).toString();
+  let res = mapCache.get(key);
+  if (!res) {
+    try {
+      const r = await fetch('api/map?' + key);
+      if (!r.ok) return;
+      res = await r.json();
+    } catch { return; }
+    mapCache.set(key, res);
+    while (mapCache.size > 30) mapCache.delete(mapCache.keys().next().value);
+  }
+  if (seq !== mapSeq) return;
+  drawMap(res.climbs);
+  mapTruncated = res.truncated;
+  $('mapNote').hidden = !mapTruncated;
+}
+function drawMap(list) {
+  const ids = new Set(list.map((c) => c.id));
+  for (const [id, pl] of lines) if (!ids.has(id)) {
+    climbLayer.removeLayer(pl); lines.delete(id);
+    casingLayer.removeLayer(casings.get(id)); casings.delete(id);
+  }
+  const st = state.selected ? DIM : STYLE;
+  for (const c of list) {
+    if (lines.has(c.id)) continue;
+    const cs = L.polyline(c.geometry, { color: '#1d1d1b', interactive: false, renderer: casingRenderer, ...st.casing });
+    casings.set(c.id, cs); casingLayer.addLayer(cs);
+    const pl = L.polyline(c.geometry, { color: color(c.avg_grade), ...st.line });
+    pl.on('click', (e) => { L.DomEvent.stopPropagation(e); select(c.id, true); });
+    pl.bindTooltip(`${esc(c.name)} — ${fmtLen(c.length_m)} à ${fmtPct(c.avg_grade)}`, { sticky: true });
+    lines.set(c.id, pl); climbLayer.addLayer(pl);
+  }
+}
+map.on('moveend', debounce(loadMap, 300));
+// liseré sombre sous les tracés : utile de près (lisibilité sur le fond), inutile et coûteux en vue
+// large (chaque tracé dessiné deux fois à chaque zoom)
+function syncCasing() {
+  const want = map.getZoom() >= 12;
+  if (want && !map.hasLayer(casingLayer)) casingLayer.addTo(map);
+  else if (!want && map.hasLayer(casingLayer)) map.removeLayer(casingLayer);
+}
+map.on('zoomend', syncCasing);
+syncCasing();
 $('more').addEventListener('click', () => query(true));
 const queryDebounced = debounce(query, 300);
 
@@ -419,21 +479,6 @@ function showResults(res, append = false) {
   state.total = res.total; state.coverage = res.coverage;
   if (!append) state.byId = new Map();
   for (const c of res.climbs) { state.byId.set(c.id, c); for (const v of c.variants) state.byId.set(v.id, v); }
-  const ids = new Set(state.climbs.map((c) => c.id));
-  for (const [id, pl] of lines) if (!ids.has(id)) {
-    climbLayer.removeLayer(pl); lines.delete(id);
-    casingLayer.removeLayer(casings.get(id)); casings.delete(id);
-  }
-  for (const c of res.climbs) {
-    if (lines.has(c.id)) continue;
-    const st = state.selected ? DIM : STYLE;
-    const cs = L.polyline(c.geometry, { color: '#1d1d1b', interactive: false, renderer: casingRenderer, ...st.casing });
-    casings.set(c.id, cs); casingLayer.addLayer(cs);
-    const pl = L.polyline(c.geometry, { color: color(c.avg_grade), ...st.line });
-    pl.on('click', (e) => { L.DomEvent.stopPropagation(e); select(c.id, true); });
-    pl.bindTooltip(`${esc(c.name)} — ${fmtLen(c.length_m)} à ${fmtPct(c.avg_grade)}`, { sticky: true });
-    lines.set(c.id, pl); climbLayer.addLayer(pl);
-  }
   const cov = res.coverage, pct = cov.total ? Math.round(100 * cov.done / cov.total) : 0;
   const nv = res.total_climbs - res.total;
   setInfo(`<b>${res.total}</b> côte${res.total > 1 ? 's' : ''} dans un rayon de ${state.radius} km`
@@ -514,7 +559,7 @@ async function pollStatus() {
   try {
     const st = await (await fetch('api/status')).json();
     // nouvelle case enregistrée (par le site ou par precompute.py) -> on rafraîchit les résultats
-    if (state.dbTiles !== null && st.db.tiles !== state.dbTiles) { respCache.clear(); queryDebounced(); }
+    if (state.dbTiles !== null && st.db.tiles !== state.dbTiles) { respCache.clear(); mapCache.clear(); queryDebounced(); }
     state.dbTiles = st.db.tiles;
     if (st.running) {
       $('job').textContent = '⏳ ' + st.message;
