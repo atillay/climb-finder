@@ -234,7 +234,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(code, page, "text/html; charset=utf-8")
 
     def log_message(self, fmt, *args):
-        line = args[0] if args else ""
+        line = str(args[0]) if args else ""   # args[0] peut être un HTTPStatus (erreurs)
         if "/api/status" not in line and "/api/climbs" not in line and "/api/coverage" not in line:
             super().log_message(fmt, *args)
 
@@ -248,7 +248,11 @@ class Handler(BaseHTTPRequestHandler):
         # 10 min (déplacements de carte, retours en arrière) ; en local, le calcul les modifie
         self.send_header("Cache-Control", "public, max-age=600" if cache and self.worker is None else "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def do_HEAD(self):   # sondes de disponibilité (curl -I, supervision)
+        self.do_GET()
 
     def _root(self):
         """Adresse publique du site (sitemap) : derrière Caddy, l'hôte et le protocole d'origine."""
