@@ -25,11 +25,11 @@ SORTABLE = {"rank", "name", "length_m", "gain_m", "avg_grade", "max_grade_100", 
             "score", "distance_km", "surface", "junctions"}
 # colonnes ajoutées avec les variantes (bases plus anciennes : ajoutées au démarrage)
 NEW_COLS = {"family": "TEXT", "variant": "TEXT", "streets": "TEXT", "junctions": "INTEGER",
-            "main_junctions": "INTEGER", "signals": "INTEGER"}
+            "main_junctions": "INTEGER", "signals": "INTEGER", "dept": "TEXT"}
 INSERT_COLS = ["id", "tile", "lat", "lon", "end_lat", "end_lon", "name", "highway", "minor", "surface",
                "length_m", "gain_m", "ascent_m", "avg_grade", "max_grade_100", "max_grade_300", "score",
                "alt_start", "alt_end", "geom_light", "geometry", "profile",
-               "family", "variant", "streets", "junctions", "main_junctions", "signals"]
+               "family", "variant", "streets", "junctions", "main_junctions", "signals", "dept"]
 LIGHT_GEOM_POINTS = 40
 MAP_LIMIT = 1500           # côtes au plus sur la carte (vue très large : les plus difficiles)
 MAP_GEOM_POINTS = 12       # tracé simplifié pour la carte
@@ -144,6 +144,8 @@ class Store:
                 if col not in have:
                     c.execute(f"ALTER TABLE climbs ADD COLUMN {col} {typ}")
             c.execute("CREATE INDEX IF NOT EXISTS climbs_family ON climbs(family)")
+            # top d'un département / d'une région (pages /region/<nom>)
+            c.execute("CREATE INDEX IF NOT EXISTS climbs_dept ON climbs(dept, variant, score)")
 
     def _conn(self):
         c = sqlite3.connect(self.path, timeout=60)
@@ -154,6 +156,8 @@ class Store:
     # --- écriture -----------------------------------------------------------
     def save_tile(self, tile, climbs, stats):
         key = tile_key(tile)
+        import regions
+        reg = regions.shared()
         rows = []
         for c in climbs:
             rows.append((
@@ -165,6 +169,7 @@ class Store:
                 encode_pairs(c["profile"], PROFILE_SCALES),
                 c.get("family") or c["id"], c.get("variant") or "principale", c.get("streets") or c["name"],
                 c.get("junctions"), c.get("main_junctions"), c.get("signals"),
+                reg.dept_of(*c["start"]) if reg else None,
             ))
         with self._conn() as con:
             con.execute("DELETE FROM climbs WHERE tile = ?", (key,))
@@ -333,6 +338,77 @@ class Store:
             c["variants"] = [full[v[0]] for v in variants]
             out.append(c)
         return {"climbs": out, "total": total, "total_climbs": n_found, "offset": offset}
+
+    def dept_counts(self):
+        """Nombre de côtes (routes classiques) par département, pour le menu des régions."""
+        with self._conn() as con:
+            rows = con.execute("SELECT dept, COUNT(*) FROM climbs INDEXED BY climbs_dept "
+                               "WHERE dept IS NOT NULL AND variant = 'principale' GROUP BY dept").fetchall()
+        return dict(rows)
+
+    def region_search(self, depts, bbox, cobbles=False, minor=True, len_min=None, len_max=None, avg_min=None,
+                      max300_min=None, gain_min=None, junc_max=None, q=None, sort="score", desc=True,
+                      limit=300, offset=0):
+        """Top des côtes d'un ou plusieurs départements (pages /region/<nom>), au même format que
+        search() : une entrée par sommet (la route classique), ses variantes dans `variants`. Les
+        filtres portent sur la route classique ; le tri et la pagination sont faits par SQLite (un
+        département peut compter des dizaines de milliers de côtes)."""
+        where, args = _filters(*bbox, cobbles, minor, len_min, len_max, avg_min, max300_min, gain_min, junc_max, q)
+        where = where[2:]   # l'emprise ne sert à rien : le département suffit
+        args = args[4:]
+        where.insert(0, f"dept IN ({','.join('?' * len(depts))}) AND variant = 'principale'")
+        args = list(depts) + args
+        if sort not in SORTABLE or sort in ("rank", "distance_km"):
+            sort, desc = "score", True if sort != "rank" else not desc
+        order = f"{'lower(' + sort + ')' if sort in ('name', 'surface') else sort} {'DESC' if desc else 'ASC'}"
+        cond = " AND ".join(where)
+        cols = f"id, lat, lon, name, highway, surface, {', '.join(NUM_COLS)}, family, variant, streets, geometry"
+        k = 6 + len(NUM_COLS)
+        key = ("region", tuple(depts), cond, tuple(args), order)
+        stamp = self._stamp()
+        hit = self._cache.get(key)
+
+        def row(r):
+            c = {"id": r[0], "start": [r[1], r[2]], "name": r[3], "highway": r[4], "surface": r[5],
+                 "distance_km": None, "family": r[k] or r[0], "variant": r[k + 1] or "principale",
+                 "streets": r[k + 2] or r[3]}
+            c.update(zip(NUM_COLS, r[6:k]))
+            return c
+
+        with self._conn() as con:
+            if hit and hit[0] == stamp:
+                total, n_var = hit[1]
+            else:
+                total = con.execute(f"SELECT COUNT(*) FROM climbs INDEXED BY climbs_dept WHERE {cond}", args).fetchone()[0]
+                vcond = cond.replace("variant = 'principale'", "variant != 'principale'")
+                n_var = con.execute(f"SELECT COUNT(*) FROM climbs INDEXED BY climbs_dept WHERE {vcond}", args).fetchone()[0]
+                self._cache[key] = (stamp, (total, n_var))
+                while len(self._cache) > SEARCH_CACHE_SIZE:
+                    self._cache.pop(next(iter(self._cache)))
+            rows = con.execute(f"SELECT {cols} FROM climbs INDEXED BY climbs_dept WHERE {cond} "
+                               f"ORDER BY {order}, id LIMIT ? OFFSET ?", args + [limit, offset]).fetchall()
+            out = []
+            for r in rows:
+                c = row(r)
+                c["geometry"] = light_geometry(r[-1])
+                c["variants"] = []
+                out.append(c)
+            # rang = classement par difficulté dans la région (connu seulement si on trie par difficulté)
+            for i, c in enumerate(out):
+                c["rank"] = (offset + i + 1 if desc else total - offset - i) if sort == "score" else None
+            # variantes des sommets affichés, mêmes filtres (sauf le département : une variante
+            # peut partir du département voisin)
+            fams = {c["family"]: c for c in out}
+            vwhere = where[1:]
+            fam_list = list(fams)
+            for i in range(0, len(fam_list), 400):
+                part = fam_list[i:i + 400]
+                sql = (f"SELECT {cols} FROM climbs WHERE family IN ({','.join('?' * len(part))}) "
+                       f"AND variant != 'principale'" + "".join(f" AND {w}" for w in vwhere) + " ORDER BY length_m")
+                for r in con.execute(sql, part + args[len(depts):]):
+                    v = row(r)
+                    fams[v["family"]]["variants"].append(v)
+        return {"climbs": out, "total": total, "total_climbs": total + n_var, "offset": offset}
 
     def map_climbs(self, s, w, n, e, limit=MAP_LIMIT, **filters):
         """Côtes principales dont le pied est dans l'emprise (s, w, n, e), pour la carte, quels que

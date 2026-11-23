@@ -159,7 +159,39 @@
   .legend.collapsed .legend-body { display: none; }
   .legend.collapsed .legend-title::after { content: ' ▸'; }
   .legend i { display: inline-block; width: 14px; height: 4px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  /* menu des régions (en-tête) et bandeau d'une page /region/<nom> */
+  h1 a { color: inherit; text-decoration: none; }
+  #regionsBtn[aria-expanded=true] { background: var(--sel); border-color: var(--accent); }
+  #regionsMenu { position: absolute; top: 100%; left: 0; right: 0; max-height: min(72vh, 640px); overflow: auto;
+    background: var(--panel); border-bottom: 1px solid var(--line); box-shadow: 0 10px 24px rgba(0,0,0,.14);
+    padding: 14px 18px 18px; }
+  .rtree-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+  .rtree-head b { font-size: 15px; }
+  .rtree { columns: 4 230px; column-gap: 24px; }
+  .rtree section { break-inside: avoid; margin: 0 0 14px; }
+  .rtree a { color: var(--ink); text-decoration: none; }
+  .rtree a:hover { color: var(--accent); text-decoration: underline; }
+  .rtree h3 { font-size: 14px; margin: 0 0 3px; }
+  .rtree ul { list-style: none; margin: 0; padding: 0; }
+  .rtree li { font-size: 13px; line-height: 1.65; }
+  .rtree small, .rchips small { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #regionBar { position: sticky; left: 0; max-width: 100cqw; padding: 12px 16px 4px; }
+  #regionBar[hidden], #regionIndex[hidden] { display: none; }
+  .crumbs { font-size: 12.5px; color: var(--muted); }
+  .crumbs a, .rchips a { color: var(--muted); text-decoration: none; }
+  .crumbs a:hover { color: var(--accent); text-decoration: underline; }
+  .rtitle { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 2px 0 4px; }
+  .rtitle h2 { font-size: 19px; margin: 0; }
+  #regionClose, #indexClose { flex: none; border: 1px solid var(--line); background: var(--panel); font-size: 13px;
+    padding: 5px 10px; border-radius: 16px; color: var(--muted); }
+  .rsum { font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+  .rchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+  .rchips a { font-size: 12.5px; border: 1px solid var(--line); border-radius: 14px; padding: 3px 10px; background: var(--panel); color: var(--ink); }
+  .rchips a:hover { border-color: var(--accent); color: var(--accent); }
+  #regionIndex { position: absolute; inset: 0; z-index: 15; overflow: auto; padding: 16px 20px 32px; background: var(--panel); }
+  #seo { padding: 12px 16px; }
   @media (max-width: 720px) {
+    #regionsMenu { padding: 12px 14px 16px; }
     .ctrl input[type=range] { width: 120px; }
     #place { width: 200px; }
   }
@@ -179,7 +211,8 @@
 </head>
 <body>
 <header>
-  <h1>Côtes <span>autour de moi</span></h1>
+  <h1><a href="./" data-nav title="Accueil : les côtes de la zone affichée">Côtes <span>autour de moi</span></a></h1>
+  <button id="regionsBtn" aria-expanded="false" aria-controls="regionsMenu" title="Le top des côtes par région et par département">Régions ▾</button>
   <div class="search">
     <input id="place" type="search" placeholder="Adresse, rue, commune…" autocomplete="off" spellcheck="false"
       aria-label="Centre de la recherche" aria-autocomplete="list" aria-controls="suggest">
@@ -190,6 +223,7 @@
   <label class="ctrl" title="Masque les côtes situées surtout sur des rues résidentielles ou des voies de desserte"><input id="skipMinor" type="checkbox"> Masquer les petites rues</label>
   <button id="scan" class="primary" title="Calcule en tâche de fond les cases de la zone qui ne sont pas encore en base">Calculer la zone</button>
   <div id="progress"><div></div></div>
+  <nav id="regionsMenu" hidden aria-label="Régions et départements"></nav>
 </header>
 <div id="layout">
 <div id="mapWrap">
@@ -200,6 +234,7 @@
 <div id="status"><span id="info">Chargement…</span><span id="mapNote" class="hint" hidden>à ce zoom, la carte n'affiche que les 1 500 côtes les plus difficiles : zoomez pour toutes les voir</span><span id="cov" class="cov"></span><span id="job"></span></div>
 
 <main id="results">
+<div id="regionBar" hidden></div>
 
 <div id="filters">
   <label>Longueur <input id="fLenMin" type="number" min="0" step="50" placeholder="min"> –
@@ -220,6 +255,7 @@
   <div class="empty" id="empty">Aucun résultat pour l'instant.</div>
 </div>
 </main>
+<section id="regionIndex" hidden></section>
 <section id="detail">
   <div>
     <h2><span id="dName"></span><span class="dbtns"><button id="recenter" title="Recentrer la carte sur la côte" aria-label="Recentrer la carte sur la côte"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><line x1="12" y1="1.5" x2="12" y2="4.5"/><line x1="12" y1="19.5" x2="12" y2="22.5"/><line x1="1.5" y1="12" x2="4.5" y2="12"/><line x1="19.5" y1="12" x2="22.5" y2="12"/></svg></button><button id="close" title="Revenir à la liste (Échap)" aria-label="Fermer">✕</button></span></h2>
@@ -239,6 +275,15 @@
 </div>
 
 <script>
+// racine du site (adresses relatives api/…, region/…) : figée au chargement, l'adresse de la page
+// change ensuite sans rechargement (/region/<nom>, voir route()) ; le serveur met <base href="../">
+// sur les pages /region/<nom>
+(() => {
+  let b = document.querySelector('base');
+  if (!b) { b = document.createElement('base'); document.head.prepend(b); b.href = new URL('.', location.href).href; }
+  else b.setAttribute('href', b.href);   // relative (../) -> absolue
+})();
+const ROOT = document.baseURI;
 const $ = (id) => document.getElementById(id);
 const READONLY = document.body.classList.contains('readonly');   // site en ligne (server.py --readonly)
 const syncHeader = () => document.documentElement.style.setProperty('--hdr', document.querySelector('header').offsetHeight + 'px');
@@ -250,6 +295,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;'
 const fmtLen = (m) => m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 1 : 2).replace('.', ',') + ' km' : Math.round(m) + ' m';
 const fmtPct = (v) => v == null ? '—' : v.toFixed(1).replace('.', ',') + ' %';
 const fmtNum = (v, d = 0) => v == null ? '—' : v.toFixed(d).replace('.', ',');
+const fmtInt = (v) => v.toLocaleString('fr-FR');
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
 // ---------- état (mémorisé dans le navigateur) ----------
@@ -323,7 +369,7 @@ function styleLines(st) {
 let progMoveAt = 0;
 function progFit(bounds, opts) { progMoveAt = Date.now(); map.fitBounds(bounds, opts); }
 // aller à un lieu (adresse, position) : la liste et la carte suivent la nouvelle zone affichée
-function goTo(latlng, zoom = 14) { map.setView(latlng, Math.max(zoom, map.getZoom() > 15 ? map.getZoom() : 0)); }
+function goTo(latlng, zoom = 14) { if (state.region) leaveRegion(); map.setView(latlng, Math.max(zoom, map.getZoom() > 15 ? map.getZoom() : 0)); }
 // zone affichée trop grande (vue de toute une région) : on ne charge rien, on demande de zoomer
 const BOX_MAX_DEG = 1.4;
 function viewTooLarge() {
@@ -411,8 +457,9 @@ function viewBox(step) {
 function queryParams(offset) {
   const num = (id) => $(id).value === '' ? '' : $(id).value;
   return new URLSearchParams({
-    // zone affichée, arrondie (~1 km) : un petit déplacement retombe sur une réponse déjà en cache
-    ...viewBox(0.01),
+    // zone affichée, arrondie (~1 km) : un petit déplacement retombe sur une réponse déjà en cache ;
+    // page d'une région : son top, quelle que soit la zone affichée
+    ...(state.region ? { region: state.region.slug } : viewBox(0.01)),
     cobbles: $('cobbles').checked ? 1 : 0, minor: $('skipMinor').checked ? 0 : 1,
     len_min: num('fLenMin'), len_max: num('fLenMax'), avg_min: num('fAvg'), max300_min: num('fMax300'),
     gain_min: num('fGain'), junc_max: num('fJunc'), q: $('fName').value.trim(),
@@ -421,7 +468,7 @@ function queryParams(offset) {
 }
 async function query(append = false) {
   const seq = ++querySeq;
-  if (viewTooLarge()) {
+  if (!state.region && viewTooLarge()) {
     if (queryAbort) queryAbort.abort();
     showResults({ climbs: [], total: 0, total_climbs: 0, coverage: { done: 0, total: 0 } });
     setInfo('Zoomez sur la carte pour voir les côtes de la zone.');
@@ -447,7 +494,8 @@ async function query(append = false) {
     if (e.name === 'AbortError') return;
     setInfo('Erreur : ' + e.message, true);
   } finally { clearTimeout(slow); }
-  if (!append) { loadCoverage(); loadMap(); }
+  if (state.region) drawMap(state.climbs);   // la carte montre les côtes de la liste
+  else if (!append) { loadCoverage(); loadMap(); }
 }
 
 // ---------- carte : toutes les côtes de la zone visible (indépendant du tableau paginé) ----------
@@ -462,6 +510,7 @@ function filterParams() {
 }
 async function loadMap() {
   const seq = ++mapSeq;
+  if (state.region) return;
   if (viewTooLarge()) { drawMap([]); $('mapNote').hidden = true; return; }
   // emprise un peu élargie et arrondie (~2 km) : petits déplacements servis par le cache
   const b = map.getBounds().pad(0.2), st = 0.02;
@@ -520,11 +569,12 @@ function showResults(res, append = false) {
   for (const c of res.climbs) { state.byId.set(c.id, c); for (const v of c.variants) state.byId.set(v.id, v); }
   const cov = res.coverage, pct = cov.total ? Math.round(100 * cov.done / cov.total) : 0;
   const nv = res.total_climbs - res.total;
-  setInfo(`<b>${res.total}</b> côte${res.total > 1 ? 's' : ''} dans la zone affichée`
+  setInfo(`<b>${fmtInt(res.total)}</b> côte${res.total > 1 ? 's' : ''} ${state.region ? (state.region.kind === 'region' ? 'dans la région' : 'dans le département') : 'dans la zone affichée'}`
     + (nv > 0 ? ` (+ ${nv} variante${nv > 1 ? 's' : ''})` : '')
     + (res.total > state.climbs.length ? ` (les ${state.climbs.length} premières affichées)` : ''));
   // en ligne, le hachurage rouge montre déjà les zones non couvertes (le % compterait la mer, l'étranger)
-  $('cov').innerHTML = READONLY ? '' : `zone calculée à <b>${pct} %</b><span class="bar"><i style="width:${pct}%"></i></span>`
+  $('mapNote').hidden = state.region ? true : !mapTruncated;
+  $('cov').innerHTML = READONLY || state.region ? '' : `zone calculée à <b>${pct} %</b><span class="bar"><i style="width:${pct}%"></i></span>`
     + (pct < 100 ? ' → clique sur « Calculer la zone »' : '');
   render();
 }
@@ -543,6 +593,7 @@ const noDataLayer = L.layerGroup().addTo(map);
 const MAX_HATCH_ROWS = 70;   // au-delà (vue très éloignée), on ne hachure pas : trop de formes
 let coverageKey = '';
 async function loadCoverage() {
+  if (state.region) return;
   const b = map.getBounds();
   const s = b.getSouth(), n = b.getNorth(), w = b.getWest(), e = b.getEast();
   try {
@@ -580,7 +631,7 @@ map.on('moveend', debounce(() => {
   const c = map.getCenter();
   state.center = [c.lat, c.lng];
   store.set('center', state.center); store.set('zoom', map.getZoom());
-  if (Date.now() - progMoveAt < 1500) return;
+  if (Date.now() - progMoveAt < 1500 || state.region) return;
   query();
 }, 400));
 
@@ -688,6 +739,7 @@ function render() {
   $('empty').style.display = n ? 'none' : 'block';
   const filtered = FILTERS.some((id) => $(id).value !== '');
   $('empty').textContent = filtered ? 'Aucune côte ne correspond aux filtres.'
+    : state.region ? 'Aucune côte dans cette région.'
     : state.coverage && state.coverage.done < state.coverage.total
       ? (READONLY ? 'Cette zone n\'est pas encore couverte par la base.'
         : 'Cette zone n\'est pas (entièrement) calculée : clique sur « Calculer la zone ». Les côtes apparaîtront ici au fur et à mesure.')
@@ -895,8 +947,139 @@ async function openSharedClimb() {
   return true;
 }
 
+// ---------- régions : menu, pages /region (toutes) et /region/<nom> (top d'une région) ----------
+// L'adresse change sans rechargement (history) ; les liens sont de vrais liens (moteurs de recherche,
+// ouverture dans un nouvel onglet). Le serveur met dans la page un résumé lisible sans JavaScript (#seo).
+document.getElementById('seo')?.remove();
+const HOME_TITLE = 'Côtes autour de moi';
+let regionTree = null, outlineLayer = null;
+let viewBefore = null;   // vue de la carte avant d'entrer dans les régions (rétablie en les quittant)
+const saveView = () => { if (!state.region && $('regionIndex').hidden) viewBefore = [map.getCenter(), map.getZoom()]; };
+const regionLabel = (r) => r.kind === 'departement' ? `${r.name} (${r.code})` : r.name;
+async function loadRegionTree() {
+  if (!regionTree) regionTree = (await (await fetch('api/regions')).json()).regions;
+  return regionTree;
+}
+function treeHtml(tree) {
+  return '<div class="rtree">' + tree.map((r) => `<section><h3><a href="region/${r.slug}" data-nav>${esc(r.name)}</a> <small>${fmtInt(r.count)}</small></h3><ul>`
+    + r.depts.map((d) => `<li><a href="region/${d.slug}" data-nav>${esc(d.name)}</a> <small>${fmtInt(d.count)}</small></li>`).join('')
+    + '</ul></section>').join('') + '</div>';
+}
+async function toggleMenu(open = $('regionsMenu').hidden) {
+  $('regionsMenu').hidden = !open;
+  $('regionsBtn').setAttribute('aria-expanded', String(open));
+  if (!open || $('regionsMenu').childElementCount) return;
+  $('regionsMenu').innerHTML = '<span class="hint">Chargement…</span>';
+  const tree = await loadRegionTree();
+  $('regionsMenu').innerHTML = `<div class="rtree-head"><b>Le top des côtes par région et département</b>`
+    + `<a class="hint" href="region" data-nav>Toutes les régions</a></div>` + treeHtml(tree);
+}
+$('regionsBtn').addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(); });
+document.addEventListener('click', (e) => {
+  if (!$('regionsMenu').hidden && !e.target.closest('#regionsMenu')) toggleMenu(false);
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('regionsMenu').hidden) toggleMenu(false); });
+// liens internes (data-nav) : navigation dans la page ; Cmd/Ctrl-clic : nouvel onglet, comme un lien normal
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a[data-nav]');
+  if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+  e.preventDefault();
+  toggleMenu(false);
+  history.pushState(null, '', a.href);
+  route();
+});
+window.addEventListener('popstate', () => route());
+
+function pagePath() {   // '' (accueil), 'region' ou 'region/<nom>'
+  const root = new URL(ROOT).pathname, p = location.pathname;
+  return (p.startsWith(root) ? p.slice(root.length) : p.replace(/^\//, '')).replace(/\/$/, '');
+}
+function setOutline(r) {
+  if (outlineLayer) { map.removeLayer(outlineLayer); outlineLayer = null; }
+  if (!r) return;
+  outlineLayer = L.polygon(r.outline, { color: '#d9480f', weight: 2, opacity: 0.8, dashArray: '6 5',
+    fill: true, fillOpacity: 0.03, interactive: false, pane: 'nodata' }).addTo(map);
+}
+function clearMapClimbs() { drawMap([]); coverageLayer.clearLayers(); noDataLayer.clearLayers(); coverageKey = ''; }
+async function openRegion(slug, fit = true) {
+  const r = await fetch('api/region/' + encodeURIComponent(slug));
+  if (!r.ok) { setInfo('Région inconnue.', true); return false; }
+  const info = await r.json();
+  if (state.selected) deselect();
+  saveView();
+  state.region = info; state.open = new Set();
+  $('regionIndex').hidden = true;
+  document.title = `Côtes à vélo : ${regionLabel(info)}, les plus difficiles — Climb Finder`;
+  const crumbs = ['<a href="region" data-nav>France</a>'];
+  if (info.parent) crumbs.push(`<a href="region/${info.parent.slug}" data-nav>${esc(info.parent.name)}</a>`);
+  $('regionBar').innerHTML = `<nav class="crumbs">${crumbs.join(' › ')}</nav>`
+    + `<div class="rtitle"><h2>Les côtes les plus difficiles : ${esc(regionLabel(info))}</h2>`
+    + `<button id="regionClose" title="Revenir aux côtes de la zone affichée sur la carte">✕ Quitter</button></div>`
+    + `<p class="rsum">${fmtInt(info.count)} côtes ${info.kind === 'region' ? 'dans la région' : 'dans le département'}, classées par difficulté.`
+    + ` La carte montre celles de la liste.</p>`
+    + (info.children.length ? '<div class="rchips">' + info.children.map((d) =>
+      `<a href="region/${d.slug}" data-nav>${esc(d.name)} <small>${fmtInt(d.count)}</small></a>`).join('') + '</div>' : '');
+  $('regionBar').hidden = false;
+  $('regionClose').addEventListener('click', () => { history.pushState(null, '', ROOT); route(); });
+  clearMapClimbs();
+  setOutline(info);
+  const [s, w, n, e] = info.bbox;
+  map.invalidateSize();
+  if (fit) progFit([[s, w], [n, e]], { padding: [16, 16] });
+  $('results').scrollTop = 0;
+  await query();
+  return true;
+}
+function leaveRegion() {   // retour au mode normal (liste = zone affichée), sans toucher à la carte
+  state.region = null; state.open = new Set();
+  $('regionBar').hidden = true; $('regionIndex').hidden = true;
+  setOutline(null);
+  document.title = HOME_TITLE;
+  if (pagePath() !== '') history.pushState(null, '', ROOT);
+}
+async function openRegionIndex() {
+  if (state.selected) deselect();
+  saveView();
+  state.region = null; setOutline(null); $('regionBar').hidden = true;
+  document.title = 'Côtes à vélo par région et département — Climb Finder';
+  const el = $('regionIndex');
+  el.hidden = false;
+  el.innerHTML = '<span class="hint">Chargement…</span>';
+  const tree = await loadRegionTree();
+  el.innerHTML = `<div class="rtitle"><h2>Côtes à vélo par région et département</h2>`
+    + `<button id="indexClose" title="Revenir aux côtes de la zone affichée sur la carte">✕ Fermer</button></div>`
+    + `<p class="rsum">Choisis une région ou un département pour voir ses côtes les plus difficiles.</p>` + treeHtml(tree);
+  $('indexClose').addEventListener('click', () => { history.pushState(null, '', ROOT); route(); });
+  progFit([[41.3, -5.2], [51.1, 9.6]]);
+  query();
+}
+// page à afficher selon l'adresse (chargement, liens internes, précédent / suivant)
+async function route(first = false) {
+  const p = pagePath(), cid = new URLSearchParams(location.search).get('c');
+  if (p.startsWith('region/')) {
+    const slug = decodeURIComponent(p.slice(7));
+    if (!state.region || state.region.slug !== slug) await openRegion(slug, !cid);
+    if (cid) await openSharedClimb();
+    else if (state.selected) deselect();
+    return;
+  }
+  if (p === 'region') return openRegionIndex();
+  const was = state.region || !$('regionIndex').hidden;
+  if (state.region || !$('regionIndex').hidden) leaveRegion();
+  if (first) { if (!(await openSharedClimb())) query(); }
+  else if (cid) openSharedClimb();
+  else {
+    if (state.selected) deselect();
+    if (was) {
+      clearMapClimbs();
+      if (viewTooLarge() && viewBefore) { progMoveAt = Date.now(); map.setView(viewBefore[0], viewBefore[1]); }
+      query();
+    }
+  }
+}
+
 renderHead();
-openSharedClimb().then((ok) => { if (!ok) query(); });
+route(true);
 pollStatus();
 </script>
 </body>

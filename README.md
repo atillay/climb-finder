@@ -120,6 +120,7 @@ les cases sont recalculées à partir du cache.
 | `store.py` | base SQLite : enregistrement, recherche par rayon, filtres, tri, pagination |
 | `precompute.py`, `lancer-nuit.sh` | calcul d'une zone via Overpass, autonome et reprenable |
 | `france.py`, `lancer-france.sh` | calcul de toute la France à partir de l'extrait Geofabrik |
+| `regions.py`, `regions.json` | régions et départements (contours IGN Admin Express, licence Etalab 2.0), rattachement des côtes, pages `/region/<nom>` |
 | `server.py` | le site et son API (et le calcul à la demande en local) |
 | `static/index.html` | l'interface (Leaflet, sans build) |
 | `deployer.sh`, `deploy/` | mise en ligne (paramètres dans `deploy.env`, non versionné) |

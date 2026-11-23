@@ -30,7 +30,7 @@ dst.close()
 print(f"    {n} côtes, {t} cases")
 EOF
 mkdir -p "$TMP/app/static"
-cp server.py store.py scanner.py "$TMP/app/"
+cp server.py store.py scanner.py regions.py regions.json "$TMP/app/"
 cp static/index.html "$TMP/app/static/"
 
 echo "3/4 Envoi"

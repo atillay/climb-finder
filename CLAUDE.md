@@ -25,6 +25,17 @@ interface en français.
   `logs/france.log`, avancement `data/france_status.json`. Reprenable à tout moment.
   ⚠ Un changement d'`ALGO_VERSION` oblige alors à retélécharger les cartes d'altitude des blocs
   déjà faits (~4 par case).
+- `regions.py` + `regions.json` (versionné, ~1 Mo) : contours des 13 régions et 96 départements
+  métropolitains (IGN Admin Express PE). Chaque côte est rattachée au département de son pied
+  (colonne `dept`, index `climbs_dept`), à l'enregistrement d'une case ou d'un coup avec
+  `python3 regions.py --assign` (~20 s). Pied hors contour : département le plus proche à moins de
+  ~600 m (côte du littoral), sinon `NULL` (étranger : au-delà, des côtes italiennes passaient dans
+  les Alpes-Maritimes). `--build` retélécharge les contours.
+- Pages `/region` (toutes les régions) et `/region/<nom>` (nom de région ou de département) : la page
+  d'accueil en « mode région » (top par difficulté, contour sur la carte, liste = carte), menu
+  « Régions » dans l'en-tête, navigation sans rechargement (history), résumé HTML pour les moteurs
+  de recherche (`#seo`), `/sitemap.xml`, `/robots.txt`. Le serveur ajoute `<base href="../">` sur
+  `/region/<nom>`.
 - `server.py` : site + API sur le port 8765 (ou le suivant libre), calcul de zone en tâche de fond.
 - `static/index.html` : interface Leaflet, sans build.
 - `deployer.sh` : met en ligne le site (`server.py --readonly`) et une copie de la base, via SSH

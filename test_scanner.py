@@ -862,5 +862,75 @@ class PrecomputeTests(unittest.TestCase):
         self.assertEqual(out["r"], (2, [A]))
 
 
+class RegionTests(unittest.TestCase):
+    """Pages /region/<nom> : contours (regions.json), rattachement des côtes, top par département."""
+
+    def test_slug_and_departement_of_a_point(self):
+        import regions
+        self.assertEqual(regions.slugify("Provence-Alpes-Côte d'Azur"), "provence-alpes-cote-d-azur")
+        self.assertEqual(regions.slugify("Côtes-d'Armor"), "cotes-d-armor")
+        r = regions.Regions()
+        self.assertEqual(len(r.depts), 96)
+        self.assertEqual(len(r.regions), 13)
+        for (la, lo), code in [((43.70, 7.27), "06"), ((48.857, 2.352), "75"), ((41.92, 8.74), "2A"),
+                               ((44.384, 4.99), "84"),     # Valréas : enclave du Vaucluse dans la Drôme
+                               ((47.0, -4.0), None),        # en mer
+                               ((43.785, 7.55), None),      # Vintimille (Italie), à 1,5 km de la frontière
+                               ((46.2, 6.14), None)]:       # Genève
+            self.assertEqual(r.dept_of(la, lo), code, (la, lo))
+        kind, x, depts = r.resolve("bretagne")
+        self.assertEqual((kind, sorted(depts)), ("region", ["22", "29", "35", "56"]))
+        self.assertEqual(r.resolve("alpes-maritimes")[2], ["06"])
+        self.assertIsNone(r.resolve("atlantide"))
+
+    def test_region_top_filters_sort_and_variants(self):
+        import os, tempfile
+        from store import Store
+        st = Store(os.path.join(tempfile.mkdtemp(), "t.sqlite"))
+        els = [way(line(0, 0, 3000, 0), {"highway": "residential", "name": "Rue A"}, 1),
+               way(line(0, 500, 3000, 500), {"highway": "tertiary", "name": "Route B"}, 2)]
+        climbs, stats = scanner.scan_elements(els, FakeElevation(profile_east), (LAT0, LON0), 1e9)
+        for c in climbs:
+            c["minor"] = c["highway"] in scanner.MINOR_STREETS
+        # une variante rattachée à la première côte (même sommet)
+        v = dict(climbs[0], id="var1", family=climbs[0]["id"], variant="longue", streets="Rue Z → Rue A")
+        save_by_tile(st, climbs + [v], stats)
+        import regions
+        code = regions.shared().dept_of(LAT0, LON0)          # 48° N, 2° E : Loiret / Essonne
+        self.assertIsNotNone(code)
+        self.assertEqual(st.dept_counts(), {code: len(climbs)})
+        bbox = regions.shared().dept_by_code[code]["bbox"]
+        r = st.region_search([code], bbox)
+        self.assertEqual(r["total"], len(climbs))
+        self.assertEqual([c["rank"] for c in r["climbs"]], list(range(1, len(climbs) + 1)))
+        scores = [c["score"] for c in r["climbs"]]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+        head = next(c for c in r["climbs"] if c["id"] == climbs[0]["id"])
+        self.assertEqual([x["id"] for x in head["variants"]], ["var1"])
+        self.assertTrue(head["geometry"])
+        self.assertEqual(st.region_search(["06"], bbox)["total"], 0)       # autre département
+        self.assertEqual(st.region_search([code], bbox, len_max=500)["total"],
+                         sum(c["length_m"] <= 500 for c in climbs))
+        r = st.region_search([code], bbox, sort="length_m", desc=False, limit=1, offset=1)
+        self.assertEqual(len(r["climbs"]), 1)
+        self.assertGreaterEqual(r["climbs"][0]["length_m"], min(c["length_m"] for c in climbs))
+
+    def test_region_page_meta(self):
+        import regions, server
+        reg = regions.shared()
+        kind, x, _ = reg.resolve("alpes-maritimes")
+        top = [{"id": "a1", "name": "Col <de> Vence", "length_m": 9800, "avg_grade": 6.55, "gain_m": 640, "score": 300}]
+        head = server.region_head(kind, x, 1234, top, "https://exemple.fr/")
+        self.assertIn("<title>Côtes à vélo : Alpes-Maritimes (06), les plus difficiles — Climb Finder</title>", head)
+        self.assertIn('href="https://exemple.fr/region/alpes-maritimes"', head)
+        self.assertIn("Col &lt;de&gt; Vence (9,80 km à 6,5 %)", head)
+        seo = server.region_seo(kind, x, reg, {"06": 1234}, top)
+        self.assertIn('<a href="region/provence-alpes-cote-d-azur">', seo)
+        self.assertIn('<a href="?c=a1">Col &lt;de&gt; Vence</a>', seo)
+        kind, x, _ = reg.resolve("corse")
+        seo = server.region_seo(kind, x, reg, {"2A": 5}, [])
+        self.assertIn('<a href="region/corse-du-sud">Corse-du-Sud</a> (5)', seo)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
