@@ -8,6 +8,7 @@ Base SQLite des côtes (data/cotes.sqlite).
 La recherche par rayon lit la base : elle est instantanée, même sur des dizaines de milliers de côtes.
 """
 
+import contextlib
 import json
 import math
 import os
@@ -147,11 +148,20 @@ class Store:
             # top d'un département / d'une région (pages /region/<nom>)
             c.execute("CREATE INDEX IF NOT EXISTS climbs_dept ON climbs(dept, variant, score)")
 
+    @contextlib.contextmanager
     def _conn(self):
+        """Connexion fermée dès la sortie du bloc `with` (validée, ou annulée en cas d'erreur).
+        Sans fermeture explicite, Python ne libère une connexion qu'au passage du ramasse-miettes :
+        sur le serveur, leurs caches (jusqu'à 2 Mo chacune) s'accumulaient au-delà de la limite
+        mémoire du service, qui était alors ralenti (pages /region, 24/11/2026)."""
         c = sqlite3.connect(self.path, timeout=60)
-        c.execute("PRAGMA journal_mode=WAL")
-        c.execute("PRAGMA synchronous=NORMAL")
-        return c
+        try:
+            c.execute("PRAGMA journal_mode=WAL")
+            c.execute("PRAGMA synchronous=NORMAL")
+            with c:
+                yield c
+        finally:
+            c.close()
 
     # --- écriture -----------------------------------------------------------
     def save_tile(self, tile, climbs, stats):
